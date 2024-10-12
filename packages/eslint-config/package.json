@@ -1,0 +1,9 @@
+{
+  "name": "@repo/eslint-config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./node": "./node.js"
+  }
+}
