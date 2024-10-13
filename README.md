@@ -2,6 +2,10 @@
 
 This is a monorepo project created with create-k4.
 
+## System Design
+
+[Architecture] (https://app.eraser.io/workspace/0B2PXHbLkkOmCdOgUPql?origin=share)
+
 ## Getting Started
 
 To boot up the project for the first time:

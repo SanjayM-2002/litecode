@@ -8,3 +8,15 @@ export interface loginRequest {
   email: string;
   password: string;
 }
+
+export interface problemStructure {
+  name: string;
+  functionName: string;
+  inputs: string[];
+  output: any;
+}
+
+export interface exampleStructure {
+  input: any;
+  output: any;
+}

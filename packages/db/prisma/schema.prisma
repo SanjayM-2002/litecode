@@ -58,7 +58,7 @@ model Problem {
   id                 String              @id @default(cuid())
   title              String
   description        String
-  hidden             Boolean             @default(true)
+  hidden             Boolean             @default(false)
   slug               String              @unique
   solved             Int                 @default(0)
   createdAt          DateTime            @default(now())
@@ -94,7 +94,7 @@ model Submission {
   status          SubmissionResult @default(PENDING)
   memory          Int?
   time            Float?
-  testcases       submissions[]
+  testcases       testcaseSubmissions[]
   activeContest   Contest?         @relation(fields: [activeContestId], references: [id])
   user            User             @relation(fields: [userId], references: [id])
   problem         Problem          @relation(fields: [problemId], references: [id])
@@ -114,7 +114,7 @@ model ContestSubmission {
   userId       String
   problemId    String
   contestId    String
-  submissionId String // purely for auditing
+  submissionId String 
   points       Int
   user         User    @relation(fields: [userId], references: [id])
   problem      Problem @relation(fields: [problemId], references: [id])
@@ -175,7 +175,7 @@ model schema_migrations {
   version String @id @db.VarChar
 }
 
-model submissions {
+model testcaseSubmissions {
   id                                         Int         @id @default(autoincrement())
   source_code                                String?
   language_id                                Int?
