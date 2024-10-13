@@ -1,5 +1,10 @@
 import express, { Request, Response } from "express";
-import { signup, login } from "../controllers/auth.controller";
+import {
+  signup,
+  login,
+  signupAdmin,
+  loginAdmin,
+} from "../controllers/auth.controller";
 const router = express.Router();
 
 router.get("/health", (req: Request, res: Response) => {
@@ -7,7 +12,9 @@ router.get("/health", (req: Request, res: Response) => {
   res.status(200).json({ status: "success" });
 });
 
-router.post("/signup", signup);
-router.post("/login", login);
+router.post("/user/signup", signup);
+router.post("/user/login", login);
+router.post("/admin/signup", signupAdmin);
+router.post("/admin/login", loginAdmin);
 
 export { router };

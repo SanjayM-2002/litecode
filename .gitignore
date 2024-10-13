@@ -24,8 +24,8 @@ yarn-error.log*
 # Local env files
 .env*.local
 .env
-apps/*/.env/
-packages/*/.env/
+apps/*/.env
+packages/*/.env
 apps/*/.env*.local/
 packages/*/.env*.local/
 
