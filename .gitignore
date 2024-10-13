@@ -1,9 +1,16 @@
 # Dependencies
 node_modules
+apps/*/node_modules/
+packages/*/node_modules/
+
 
 # Builds
 .next/
 dist/
+apps/*/.next/
+packages/*/.next/
+apps/*/dist/
+packages/*/dist/
 
 # Misc
 .DS_Store
@@ -16,6 +23,12 @@ yarn-error.log*
 
 # Local env files
 .env*.local
+.env
+apps/*/.env/
+packages/*/.env/
+apps/*/.env*.local/
+packages/*/.env*.local/
+
 
 # Turbo
 .turbo

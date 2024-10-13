@@ -14,7 +14,7 @@
     "dev": "tsup --watch",
     "lint": "eslint .",
     "build:prisma": "prisma generate",
-    "migrate": "prisma migrate",
+    "migrate": "prisma migrate dev",
     "push": "prisma db push"
   },
   "devDependencies": {

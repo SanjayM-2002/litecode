@@ -1,0 +1,35 @@
+{
+  "name": "@repo/primary-backend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup --clean",
+    "start": "node dist/index.js",
+    "check-types": "tsc --noEmit",
+    "dev": "tsup --watch --onSuccess \"pnpm run start\"",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@repo/db": "workspace:^",
+    "@repo/eslint-config": "workspace:^",
+    "@repo/queue": "workspace:^",
+    "@repo/typescript-config": "workspace:^",
+    "@repo/constants": "workspace:^",
+    "@types/bcrypt": "^5.0.2",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/jsonwebtoken": "^9.0.7",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "i": "^0.3.7",
+    "joi": "^17.13.3",
+    "jsonwebtoken": "^9.0.2",
+    "npm": "^10.9.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.3"
+  }
+}

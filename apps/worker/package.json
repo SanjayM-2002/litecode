@@ -15,7 +15,9 @@
     "@repo/eslint-config": "workspace:^",
     "@repo/queue": "workspace:^",
     "@repo/typescript-config": "workspace:^",
-    "bullmq": "^5.19.0"
+    "@types/express": "^5.0.0",
+    "bullmq": "^5.19.0",
+    "express": "^4.21.1"
   },
   "devDependencies": {
     "tsup": "^8.3.0",
