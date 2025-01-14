@@ -19,7 +19,10 @@ const errorMessages = {
   EMAIL_ALREADY_EXISTS: 'Email already exists',
   INVALID_EMAIL: 'Invalid email',
   INVALID_PASSWORD: 'Invalid password',
+  DATABASE_ERROR: 'Database error',
   SOMETHING_WENT_WRONG: 'Something went wrong',
 };
 
-export { statusCodes, errorMessages };
+const gender = ['MALE', 'FEMALE', 'OTHER'] as const;
+
+export { statusCodes, errorMessages, gender };
