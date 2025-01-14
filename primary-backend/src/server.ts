@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import dotenv from 'dotenv';
 import { router as authRouter } from './routes/auth.route';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { healthCheck } from './controllers/health.controller';
 
 dotenv.config();
@@ -13,6 +14,7 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use(cookieParser());
 
 app.get('/api/v1/health', healthCheck);
 
