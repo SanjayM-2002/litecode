@@ -9,4 +9,13 @@ interface loginRequest {
   password: string;
 }
 
-export { signupRequest, loginRequest };
+interface AddProfileRequest {
+  country?: string;
+  gender?: string;
+  location?: string;
+  birthday?: string;
+  bio?: string;
+  skills?: string[];
+}
+
+export { signupRequest, loginRequest, AddProfileRequest };

@@ -22,9 +22,58 @@ model User {
   updatedAt          DateTime            @updatedAt
   role               UserRole            @default(PARTICIPANT)
   profilePicture     String?
+  profile            Profile?
 }
 
 enum UserRole {
   ADMIN
   PARTICIPANT
+}
+
+model Profile {
+  id                 String         @id @default(uuid())
+  country            String?
+  gender             String?
+  location           String?
+  birthday           DateTime?
+  bio                String?
+  education          Education[]
+  workExperience     WorkExperience[]
+  skills             String[]       
+  socialLinks        SocialLinks?   
+  user               User           @relation(fields: [userId], references: [id])
+  userId             String         @unique
+}
+
+model Education {
+  id                 String    @id @default(uuid())
+  institute          String
+  degree             String
+  subject            String
+  startDate          DateTime
+  endDate            DateTime?
+  profileId          String
+  profile            Profile   @relation(fields: [profileId], references: [id])
+}
+
+model WorkExperience {
+  id                 String    @id @default(uuid())
+  company            String
+  role               String
+  startDate          DateTime
+  endDate            DateTime?
+  profileId          String    @unique
+  profile            Profile   @relation(fields: [profileId], references: [id])
+}
+
+model SocialLinks {
+  id                 String    @id @default(uuid())
+  instagram          String?
+  github             String?
+  twitter            String?
+  linkedin           String?
+  personalWebsite    String?
+  other              String?
+  profileId          String    @unique
+  profile            Profile   @relation(fields: [profileId], references: [id])
 }
