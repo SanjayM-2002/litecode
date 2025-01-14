@@ -2,12 +2,14 @@ import { Request, Response } from 'express';
 import { AddProfileRequest } from '../constants/types';
 import { PrismaClient } from '@prisma/client';
 import { statusCodes, errorMessages } from '../constants/constants';
+import { handleError } from '../utils/error.util';
+import { addProfileSchema } from '../validations/profile.validation';
 
 const prisma = new PrismaClient();
 
 const addProfile = async (req: Request, res: Response): Promise<any> => {
   try {
-    const body: AddProfileRequest = req.body;
+    const body = addProfileSchema.parse(req.body);
     const userId = req.body.token.id as string;
     const newData = {
       userId,
@@ -22,11 +24,9 @@ const addProfile = async (req: Request, res: Response): Promise<any> => {
       data: newData,
     });
     return res.status(statusCodes.CREATED).json({ profile });
-  } catch (err) {
-    console.error('Error in addProfile: ', err);
-    res
-      .status(statusCodes.INTERNAL_SERVER_ERROR)
-      .json({ error: errorMessages.INTERNAL_SERVER_ERROR });
+  } catch (error) {
+    console.error('Error in addProfile: ', error);
+    handleError(error, res);
   }
 };
 

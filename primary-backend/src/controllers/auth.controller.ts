@@ -4,12 +4,14 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import { generateToken } from '../utils/jwt.util';
 import { statusCodes, errorMessages } from '../constants/constants';
+import { handleError } from '../utils/error.util';
+import { signupSchema, loginSchema } from '../validations/auth.validation';
 
 const prisma = new PrismaClient();
 
 const signup = async (req: Request, res: Response): Promise<any> => {
   try {
-    const body: signupRequest = req.body;
+    const body = signupSchema.parse(req.body);
     const { email, password, fullname } = body;
     const isEmailPresent = await prisma.user.findUnique({
       where: {
@@ -38,15 +40,13 @@ const signup = async (req: Request, res: Response): Promise<any> => {
     res.status(statusCodes.CREATED).json({ user, token });
   } catch (error) {
     console.error(error);
-    res
-      .status(statusCodes.INTERNAL_SERVER_ERROR)
-      .json({ error: errorMessages.INTERNAL_SERVER_ERROR });
+    handleError(error, res);
   }
 };
 
 const signupAdmin = async (req: Request, res: Response): Promise<any> => {
   try {
-    const body: signupRequest = req.body;
+    const body = signupSchema.parse(req.body);
     const { email, password, fullname } = body;
     const isEmailPresent = await prisma.user.findUnique({
       where: {
@@ -76,15 +76,13 @@ const signupAdmin = async (req: Request, res: Response): Promise<any> => {
     res.status(statusCodes.CREATED).json({ user, token });
   } catch (error) {
     console.error(error);
-    res
-      .status(statusCodes.INTERNAL_SERVER_ERROR)
-      .json({ error: errorMessages.INTERNAL_SERVER_ERROR });
+    handleError(error, res);
   }
 };
 
 const login = async (req: Request, res: Response): Promise<any> => {
   try {
-    const body: loginRequest = req.body;
+    const body = loginSchema.parse(req.body);
     const { email, password } = body;
     const user = await prisma.user.findUnique({
       where: {
@@ -114,15 +112,13 @@ const login = async (req: Request, res: Response): Promise<any> => {
     res.status(statusCodes.OK).json({ user: userData, token });
   } catch (error) {
     console.error(error);
-    res
-      .status(statusCodes.INTERNAL_SERVER_ERROR)
-      .json({ error: errorMessages.INTERNAL_SERVER_ERROR });
+    handleError(error, res);
   }
 };
 
 const loginAdmin = async (req: Request, res: Response): Promise<any> => {
   try {
-    const body: loginRequest = req.body;
+    const body = loginSchema.parse(req.body);
     const { email, password } = body;
     const user = await prisma.user.findUnique({
       where: {
@@ -152,9 +148,7 @@ const loginAdmin = async (req: Request, res: Response): Promise<any> => {
     res.status(statusCodes.OK).json({ user: userData, token });
   } catch (error) {
     console.error(error);
-    res
-      .status(statusCodes.INTERNAL_SERVER_ERROR)
-      .json({ error: errorMessages.INTERNAL_SERVER_ERROR });
+    handleError(error, res);
   }
 };
 
