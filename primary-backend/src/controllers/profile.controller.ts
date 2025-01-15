@@ -9,7 +9,12 @@ const prisma = new PrismaClient();
 
 const addProfile = async (req: Request, res: Response): Promise<any> => {
   try {
-    const body = addProfileSchema.parse(req.body);
+    const { error, value: body } = addProfileSchema.validate(req.body, {
+      abortEarly: false,
+    });
+    if (error) {
+      return res.status(statusCodes.BAD_REQUEST).json({ error: error.details });
+    }
     const userId = req.body.token.id as string;
     const newData = {
       userId,

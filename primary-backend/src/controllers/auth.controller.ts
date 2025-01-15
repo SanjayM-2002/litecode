@@ -11,7 +11,12 @@ const prisma = new PrismaClient();
 
 const signup = async (req: Request, res: Response): Promise<any> => {
   try {
-    const body = signupSchema.parse(req.body);
+    const { error, value: body } = signupSchema.validate(req.body, {
+      abortEarly: false,
+    });
+    if (error) {
+      return res.status(statusCodes.BAD_REQUEST).json({ error: error.details });
+    }
     const { email, password, fullname } = body;
     const isEmailPresent = await prisma.user.findUnique({
       where: {
@@ -46,7 +51,12 @@ const signup = async (req: Request, res: Response): Promise<any> => {
 
 const signupAdmin = async (req: Request, res: Response): Promise<any> => {
   try {
-    const body = signupSchema.parse(req.body);
+    const { error, value: body } = signupSchema.validate(req.body, {
+      abortEarly: false,
+    });
+    if (error) {
+      return res.status(statusCodes.BAD_REQUEST).json({ error: error.details });
+    }
     const { email, password, fullname } = body;
     const isEmailPresent = await prisma.user.findUnique({
       where: {
@@ -82,7 +92,12 @@ const signupAdmin = async (req: Request, res: Response): Promise<any> => {
 
 const login = async (req: Request, res: Response): Promise<any> => {
   try {
-    const body = loginSchema.parse(req.body);
+    const { error, value: body } = loginSchema.validate(req.body, {
+      abortEarly: false,
+    });
+    if (error) {
+      return res.status(statusCodes.BAD_REQUEST).json({ error: error.details });
+    }
     const { email, password } = body;
     const user = await prisma.user.findUnique({
       where: {
@@ -118,7 +133,12 @@ const login = async (req: Request, res: Response): Promise<any> => {
 
 const loginAdmin = async (req: Request, res: Response): Promise<any> => {
   try {
-    const body = loginSchema.parse(req.body);
+    const { error, value: body } = loginSchema.validate(req.body, {
+      abortEarly: false,
+    });
+    if (error) {
+      return res.status(statusCodes.BAD_REQUEST).json({ error: error.details });
+    }
     const { email, password } = body;
     const user = await prisma.user.findUnique({
       where: {

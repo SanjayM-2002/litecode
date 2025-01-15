@@ -1,15 +1,8 @@
 import { Response } from 'express';
-import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { statusCodes, errorMessages } from '../constants/constants';
 
 export const handleError = (error: any, res: Response) => {
-  if (error instanceof z.ZodError) {
-    return res.status(statusCodes.BAD_REQUEST).json({
-      error: error,
-    });
-  }
-
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     if (error.code === 'P2002') {
       return res.status(statusCodes.BAD_REQUEST).json({
