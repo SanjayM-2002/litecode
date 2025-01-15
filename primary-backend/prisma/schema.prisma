@@ -14,15 +14,21 @@ datasource db {
 }
 
 model User {
-  id                 String              @id @default(uuid())
-  email              String              @unique
-  fullname           String
-  password           String
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  role               UserRole            @default(PARTICIPANT)
-  profilePicture     String?
-  profile            Profile?
+  id                              String                          @id @default(uuid())
+  email                           String                          @unique
+  fullname                        String
+  password                        String
+  createdAt                       DateTime                        @default(now())
+  updatedAt                       DateTime                        @updatedAt
+  role                            UserRole                        @default(PARTICIPANT)
+  profilePicture                  String?
+  profile                         Profile?
+  problem                         Problem[]                       @relation("ProblemAuthor")
+  problemDiscussion               ProblemDiscussion[]
+  problemDiscussionComment        ProblemDiscussionComment[]
+  problemVote                     ProblemVote[]
+  problemDiscussionVote           ProblemDiscussionVote[]
+  problemDiscussionCommentVote    ProblemDiscussionCommentVote[]
 }
 
 enum UserRole {
@@ -31,7 +37,7 @@ enum UserRole {
 }
 
 model Profile {
-  id                 String         @id @default(uuid())
+  id                 String             @id @default(uuid())
   country            String?
   gender             Gender?
   location           String?
@@ -41,8 +47,8 @@ model Profile {
   workExperience     WorkExperience[]
   skills             String[]       
   socialLinks        SocialLinks?   
-  user               User           @relation(fields: [userId], references: [id])
-  userId             String         @unique
+  user               User               @relation(fields: [userId], references: [id])
+  userId             String             @unique
 }
 
 enum Gender {
@@ -69,7 +75,7 @@ model WorkExperience {
   location           String
   startDate          DateTime
   endDate            DateTime?
-  profileId          String    @unique
+  profileId          String    
   profile            Profile   @relation(fields: [profileId], references: [id])
 }
 
@@ -83,4 +89,164 @@ model SocialLinks {
   other              String?
   profileId          String    @unique
   profile            Profile   @relation(fields: [profileId], references: [id])
+}
+
+model Problem {
+  id             String                @id @default(uuid())
+  number         Int                   @unique @default(autoincrement())
+  title          String
+  description    String
+  testCases      TestCase[]
+  problemImages  ProblemImage[]
+  author         User                  @relation("ProblemAuthor", fields: [authorId], references: [id])
+  authorId       String
+  companies      Company[]
+  topics         Topic[]
+  difficulty     Difficulty
+  analytics      ProblemAnalytics?
+  editorial      Editorial?
+  discussions    ProblemDiscussion[]
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  boilerPlates   BoilerPlate[]
+  problemVote    ProblemVote[]
+}
+
+model TestCase {
+  id             String    @id @default(uuid())
+  input          Json      
+  expectedOutput Json      
+  isExample      Boolean   @default(false) 
+  problemId      String
+  problem        Problem   @relation(fields: [problemId], references: [id])
+}
+
+model BoilerPlate {
+  id             String    @id @default(uuid())
+  code           String
+  languageId     String    
+  language       Language  @relation(fields: [languageId], references: [id])  
+  problemId      String
+  problem        Problem   @relation(fields: [problemId], references: [id])
+}
+
+model Language {
+  id            String       @id @default(uuid())
+  name          LanguageType      
+  boilerPlates  BoilerPlate[]
+}
+
+enum LanguageType {
+  PYTHON
+  JAVA
+  JAVASCRIPT
+  C
+  CPP
+  RUBY
+  GO
+  SWIFT
+  KOTLIN
+  TYPESCRIPT
+  RUST
+}
+
+model ProblemImage {
+  id             String    @id @default(uuid())
+  url            String
+  description    String?
+  problemId      String
+  problem        Problem   @relation(fields: [problemId], references: [id])
+}
+
+model Company {
+  id             String     @id @default(uuid())
+  name           String     @unique
+  problems       Problem[]  
+}
+
+model Topic {
+  id             String     @id @default(uuid())
+  name           String     @unique
+  problems       Problem[]  
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+model ProblemAnalytics {
+  id                  String     @id @default(uuid())
+  numberOfSubmissions Int        @default(0)
+  acceptedSubmissions Int        @default(0)
+  problemId           String     @unique
+  problem             Problem    @relation(fields: [problemId], references: [id])
+}
+
+model Editorial {
+  id             String    @id @default(uuid())
+  content        String
+  problemId      String    @unique
+  problem        Problem   @relation(fields: [problemId], references: [id])
+}
+
+model ProblemDiscussion {
+  id          String                              @id @default(uuid())
+  user        User                                @relation(fields: [userId], references: [id])
+  userId      String
+  problem     Problem                             @relation(fields: [problemId], references: [id])
+  problemId   String
+  title       String
+  description String                     
+  comments    ProblemDiscussionComment[] 
+  createdAt   DateTime                            @default(now())
+  updatedAt   DateTime                            @updatedAt
+  problemDiscussionVote ProblemDiscussionVote[]
+}
+
+model ProblemDiscussionComment {
+  id             String                                       @id @default(uuid())
+  discussion     ProblemDiscussion                            @relation(fields: [discussionId], references: [id])
+  discussionId   String
+  user           User                                         @relation(fields: [userId], references: [id])
+  userId         String
+  comment        String
+  createdAt      DateTime                                     @default(now())
+  updatedAt      DateTime                                     @updatedAt
+
+  problemDiscussionCommentVote ProblemDiscussionCommentVote[]
+}
+
+model ProblemVote {
+  id        String  @id @default(uuid())
+  vote      Int     @default(0) // 1 for upvote, -1 for downvote, 0 for no vote
+  userId    String
+  problemId String
+  user      User    @relation(fields: [userId], references: [id])
+  problem   Problem @relation(fields: [problemId], references: [id])
+
+  @@unique([userId, problemId]) 
+}
+
+model ProblemDiscussionVote {
+  id                  String  @id @default(uuid())
+  vote                Int     @default(0) 
+  userId              String
+  problemDiscussionId String
+  user                User    @relation(fields: [userId], references: [id])
+  problemDiscussion   ProblemDiscussion @relation(fields: [problemDiscussionId], references: [id])
+
+  @@unique([userId, problemDiscussionId]) 
+}
+
+model ProblemDiscussionCommentVote {
+  id                        String  @id @default(uuid())
+  vote                      Int     @default(0) 
+  userId                    String
+  problemDiscussionCommentId String
+  user                      User    @relation(fields: [userId], references: [id])
+  problemDiscussionComment  ProblemDiscussionComment @relation(fields: [problemDiscussionCommentId], references: [id])
+
+  @@unique([userId, problemDiscussionCommentId]) 
 }
