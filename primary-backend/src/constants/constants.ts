@@ -20,6 +20,7 @@ const errorMessages = {
   INVALID_EMAIL: 'Invalid email',
   INVALID_PASSWORD: 'Invalid password',
   DATABASE_ERROR: 'Database error',
+  SOCIAL_LINK_EXISTS: 'Social link already exists',
   SOMETHING_WENT_WRONG: 'Something went wrong',
 };
 
