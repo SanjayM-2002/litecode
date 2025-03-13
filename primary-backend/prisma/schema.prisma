@@ -29,6 +29,7 @@ model User {
   problemVote                     ProblemVote[]
   problemDiscussionVote           ProblemDiscussionVote[]
   problemDiscussionCommentVote    ProblemDiscussionCommentVote[]
+  submissions Submission[]
 }
 
 enum UserRole {
@@ -95,7 +96,7 @@ model Problem {
   id             String                @id @default(uuid())
   number         Int                   @unique @default(autoincrement())
   title          String
-  description    String
+  description    String                @db.Text
   testCases      TestCase[]
   problemImages  ProblemImage[]
   author         User                  @relation("ProblemAuthor", fields: [authorId], references: [id])
@@ -108,22 +109,48 @@ model Problem {
   discussions    ProblemDiscussion[]
   createdAt      DateTime              @default(now())
   updatedAt      DateTime              @updatedAt
-  boilerPlates   BoilerPlate[]
+  functionBoilerPlates   FunctionBoilerPlate[]
   problemVote    ProblemVote[]
+  completeBoilerPlates CompleteBoilerPlate[]
+
+  submissions Submission[]
 }
 
 model TestCase {
   id             String    @id @default(uuid())
-  input          Json      
-  expectedOutput Json      
+  inputs         Input[]
+  outputId       String     @unique
+  output         Output?    @relation(fields: [outputId], references: [id])    
   isExample      Boolean   @default(false) 
   problemId      String
   problem        Problem   @relation(fields: [problemId], references: [id])
 }
 
-model BoilerPlate {
+model Input {
   id             String    @id @default(uuid())
-  code           String
+  input          Json      // {data: "abc"}
+  testCaseId     String
+  testCase       TestCase  @relation(fields: [testCaseId], references: [id])
+}
+
+model Output {
+  id             String    @id @default(uuid())
+  output         Json      // {data: "abc"}
+  testCase       TestCase?  
+}
+
+model FunctionBoilerPlate {
+  id             String    @id @default(uuid())
+  code           String    @db.Text
+  languageId     String    
+  language       Language  @relation(fields: [languageId], references: [id])  
+  problemId      String
+  problem        Problem   @relation(fields: [problemId], references: [id])
+}
+
+model CompleteBoilerPlate {
+  id             String    @id @default(uuid())
+  code           String    @db.Text
   languageId     String    
   language       Language  @relation(fields: [languageId], references: [id])  
   problemId      String
@@ -133,7 +160,9 @@ model BoilerPlate {
 model Language {
   id            String       @id @default(uuid())
   name          LanguageType      
-  boilerPlates  BoilerPlate[]
+  functionBoilerPlates  FunctionBoilerPlate[]
+  completeBoilerPlates CompleteBoilerPlate[]
+  submissions Submission[]
 }
 
 enum LanguageType {
@@ -184,9 +213,30 @@ model ProblemAnalytics {
   problem             Problem    @relation(fields: [problemId], references: [id])
 }
 
+model Submission {
+  id             String    @id @default(uuid())
+  code           String    @db.Text
+  languageId     String    
+  language       Language  @relation(fields: [languageId], references: [id])  
+  userId         String
+  user           User      @relation(fields: [userId], references: [id])
+  problemId      String
+  problem        Problem   @relation(fields: [problemId], references: [id])
+  status         SubmissionStatus
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+enum SubmissionStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
 model Editorial {
   id             String    @id @default(uuid())
-  content        String
+  code           String    @db.Text
+  content        String    @db.Text
   problemId      String    @unique
   problem        Problem   @relation(fields: [problemId], references: [id])
 }
@@ -198,7 +248,7 @@ model ProblemDiscussion {
   problem     Problem                             @relation(fields: [problemId], references: [id])
   problemId   String
   title       String
-  description String                     
+  description String                              @db.Text
   comments    ProblemDiscussionComment[] 
   createdAt   DateTime                            @default(now())
   updatedAt   DateTime                            @updatedAt
@@ -211,7 +261,7 @@ model ProblemDiscussionComment {
   discussionId   String
   user           User                                         @relation(fields: [userId], references: [id])
   userId         String
-  comment        String
+  comment        String                                       @db.Text
   createdAt      DateTime                                     @default(now())
   updatedAt      DateTime                                     @updatedAt
 
