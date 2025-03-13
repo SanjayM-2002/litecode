@@ -1,6 +1,5 @@
 import Joi, { any } from 'joi';
 import { difficulty } from '../constants/constants';
-import { title } from 'process';
 
 const addProblemSchema = Joi.object({
   title: Joi.string().required().messages({

@@ -122,4 +122,10 @@ const companies = [
   'IBM',
 ] as const;
 
-export { statusCodes, errorMessages, gender, languages, companies };
+const difficulty = {
+  EASY: 'EASY',
+  MEDIUM: 'MEDIUM',
+  HARD: 'HARD',
+} as const;
+
+export { statusCodes, errorMessages, gender, languages, companies, difficulty };
