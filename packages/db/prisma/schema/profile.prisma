@@ -1,0 +1,88 @@
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+model ParticipantProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  gender   Gender?
+  birthday DateTime?
+  bio      String?
+
+  country String?
+  state   String?
+  city    String?
+
+  skills String[]
+
+  coins  Int @default(0)
+  rating Int @default(1500)
+
+  isPremium    Boolean   @default(false)
+  premiumUntil DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  extras          ProfileExtras?
+  workExperiences WorkExperience[]
+  educations      Education[]
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ProfileExtras {
+  id        String @id @default(cuid())
+  profileId String @unique
+
+  github   String?
+  linkedin String?
+  x        String?
+  websites String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile ParticipantProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+}
+
+model WorkExperience {
+  id        String @id @default(cuid())
+  profileId String
+
+  company     String
+  title       String
+  description String?
+  startDate   DateTime
+  endDate     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile ParticipantProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+}
+
+model Education {
+  id        String @id @default(cuid())
+  profileId String
+
+  institution  String
+  degree       String?
+  fieldOfStudy String?
+  description  String?
+  startDate    DateTime
+  endDate      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile ParticipantProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+}

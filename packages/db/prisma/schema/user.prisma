@@ -1,0 +1,39 @@
+enum Role {
+  PARTICIPANT
+  ADMIN
+}
+
+enum Permission {
+  CREATE_PROBLEM
+  EDIT_PROBLEM
+  MANAGE_USERS
+  CREATE_CONTEST
+  MANAGE_TEMPLATES
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String?
+  name      String?
+  role      Role     @default(PARTICIPANT)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participantProfile ParticipantProfile?
+  adminProfile       AdminProfile?
+
+  @@index([role])
+}
+
+model AdminProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  permissions Permission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
