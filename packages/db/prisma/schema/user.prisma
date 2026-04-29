@@ -11,6 +11,12 @@ enum Permission {
   MANAGE_TEMPLATES
 }
 
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
@@ -20,8 +26,10 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  participantProfile ParticipantProfile?
-  adminProfile       AdminProfile?
+  participantProfile       ParticipantProfile?
+  adminProfile             AdminProfile?
+  sentAdminInvitations     AdminInvitation[]   @relation("InvitedAdmins")
+  acceptedAdminInvitations AdminInvitation[]   @relation("AcceptedInvitations")
 
   @@index([role])
 }
@@ -36,4 +44,28 @@ model AdminProfile {
   updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AdminInvitation {
+  id          String           @id @default(cuid())
+  email       String
+  tokenHash   String           @unique
+  permissions Permission[]
+  status      InvitationStatus @default(PENDING)
+
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  revokedAt  DateTime?
+
+  invitedById      String
+  acceptedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invitedBy      User  @relation("InvitedAdmins", fields: [invitedById], references: [id])
+  acceptedByUser User? @relation("AcceptedInvitations", fields: [acceptedByUserId], references: [id])
+
+  @@index([email])
+  @@index([status])
 }
