@@ -2,7 +2,68 @@
 # THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
 # ------------------------------------------------------
 
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
+enum Gender {
+  FEMALE
+  MALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+type Mutation {
+  """Updates the authenticated participant profile (partial)"""
+  updateProfile(input: UpdateProfileInput!): ParticipantProfile!
+}
+
+type ParticipantProfile {
+  bio: String
+  birthday: DateTime
+  city: String
+  coins: Int!
+  country: String
+  createdAt: DateTime!
+  gender: Gender
+  id: ID!
+  isPremium: Boolean!
+  premiumUntil: DateTime
+  rating: Int!
+  skills: [String!]!
+  state: String
+  updatedAt: DateTime!
+}
+
 type Query {
+  """Returns the authenticated user with their profile"""
+  me: User!
+
   """A simple ping query to verify GraphQL is working."""
   ping: String!
+}
+
+enum Role {
+  ADMIN
+  PARTICIPANT
+}
+
+input UpdateProfileInput {
+  bio: String
+  birthday: DateTime
+  city: String
+  country: String
+  gender: Gender
+  skills: [String!]
+  state: String
+}
+
+type User {
+  createdAt: DateTime!
+  email: String!
+  id: ID!
+  name: String
+  participantProfile: ParticipantProfile
+  role: Role!
 }
