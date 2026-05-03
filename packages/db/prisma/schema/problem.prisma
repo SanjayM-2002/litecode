@@ -1,0 +1,99 @@
+// --- PROBLEMS ---
+
+model Problem {
+  id          String     @id @default(cuid())
+  title       String
+  slug        String     @unique // e.g., "two-sum"
+  description String     @db.Text
+  difficulty  Difficulty @default(EASY)
+  rating      Int        @default(1500) // numeric difficulty, typical range 800–3500
+
+  isPublished Boolean    @default(false)
+
+  // Code generation metadata.
+  // shape: { methodName: string, args: [{ name, type }], returnType: string }
+  signature   Json
+
+  // Relations
+  testCases   TestCase[]
+  templates   CodeTemplate[]
+  topics      ProblemTopic[]
+
+  createdById String
+  createdBy   User       @relation("AuthoredProblems", fields: [createdById], references: [id])
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([difficulty])
+  @@index([rating])
+  @@index([createdAt])
+  @@index([createdById])
+  @@index([isPublished])
+}
+
+// --- TEST CASES ---
+
+model TestCase {
+  id           String   @id @default(cuid())
+  problemId    String
+  problem      Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  // Inline storage for small cases (read directly, no GCS roundtrip).
+  // Encoded as a positional JSON array matching `Problem.signature.args`.
+  // e.g., for twoSum([2,7,11,15], 9) → inlineInput = [[2,7,11,15], 9]
+  inlineInput  Json?
+  inlineOutput Json?
+
+  // GCS storage for large cases. File contents follow the same JSON shape.
+  // At least one of (inlineInput, inputPath) and (inlineOutput, outputPath)
+  // must be set — enforced via raw-SQL CHECK constraint in the migration.
+  inputPath    String?
+  outputPath   String?
+
+  // Metadata
+  isSample    Boolean  @default(false) // Visible to user in "Examples"
+  explanation String?  @db.Text        // e.g., "Because 2 + 7 = 9..."
+  order       Int      @default(0)     // Author-controlled sequence
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([problemId])
+  @@index([problemId, order])
+}
+
+// --- LANGUAGE TEMPLATES ---
+
+model CodeTemplate {
+  id          String   @id @default(cuid())
+  language    Language
+  problemId   String
+  problem     Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  starterCode String   @db.Text
+  driverCode  String   @db.Text
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([problemId, language])
+  @@index([problemId])
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+// Map to Judge0 IDs in code, not in the DB.
+enum Language {
+  CPP
+  JAVA
+  PYTHON
+  JAVASCRIPT
+  TYPESCRIPT
+  GO
+  RUST
+}

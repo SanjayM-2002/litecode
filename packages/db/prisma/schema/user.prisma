@@ -30,6 +30,7 @@ model User {
   adminProfile             AdminProfile?
   sentAdminInvitations     AdminInvitation[]   @relation("InvitedAdmins")
   acceptedAdminInvitations AdminInvitation[]   @relation("AcceptedInvitations")
+  authoredProblems         Problem[]           @relation("AuthoredProblems")
 
   @@index([role])
 }

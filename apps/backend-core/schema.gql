@@ -2,10 +2,97 @@
 # THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
 # ------------------------------------------------------
 
+type AdminMe {
+  profile: AdminProfile!
+  user: User!
+}
+
+input AdminProblemsFilterInput {
+  """Filter to a specific author by user ID"""
+  createdById: String
+  difficulty: Difficulty
+  isPublished: Boolean
+
+  """Inclusive upper bound on rating."""
+  maxRating: Int
+
+  """Inclusive lower bound on rating."""
+  minRating: Int
+
+  """Case-insensitive title contains"""
+  search: String
+  skip: Int = 0
+  take: Int = 50
+
+  """Filter by topic slug"""
+  topicSlug: String
+}
+
+type AdminProfile {
+  createdAt: DateTime!
+  id: ID!
+  permissions: [Permission!]!
+  updatedAt: DateTime!
+}
+
+type Argument {
+  name: String!
+  type: String!
+}
+
+input ArgumentInput {
+  name: String!
+
+  """
+  e.g., "int", "int[]", "string", "boolean", "void"
+  """
+  type: String!
+}
+
+type CodeTemplate {
+  createdAt: DateTime!
+
+  """Hidden wrapper with {{USER_CODE}} placeholder"""
+  driverCode: String!
+  id: ID!
+  language: Language!
+  starterCode: String!
+  updatedAt: DateTime!
+}
+
+input CreateProblemInput {
+  description: String!
+  difficulty: Difficulty!
+
+  """
+  Numeric difficulty rating (typical range 800–3500). Defaults to 1500 if omitted.
+  """
+  rating: Int
+  signature: SignatureInput!
+
+  """URL-friendly slug, must be unique"""
+  slug: String!
+
+  """
+  Optional inline templates. Use setCodeTemplate later if you prefer separate calls.
+  """
+  templates: [TemplateInput!]
+  title: String!
+
+  """IDs of existing topics to link. Backend errors if any ID is unknown."""
+  topicIds: [String!]!
+}
+
 """
 A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
 """
 scalar DateTime
+
+enum Difficulty {
+  EASY
+  HARD
+  MEDIUM
+}
 
 enum Gender {
   FEMALE
@@ -14,9 +101,72 @@ enum Gender {
   PREFER_NOT_TO_SAY
 }
 
+input GenerateTemplateInput {
+  language: Language!
+  signature: SignatureInput!
+}
+
+type GeneratedTemplate {
+  """
+  Hidden wrapper containing {{USER_CODE}} placeholder; merged at submit time
+  """
+  driverCode: String!
+  language: Language!
+
+  """Editor-visible class skeleton for the user"""
+  starterCode: String!
+}
+
+"""
+The `JSON` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf).
+"""
+scalar JSON
+
+enum Language {
+  CPP
+  GO
+  JAVA
+  JAVASCRIPT
+  PYTHON
+  RUST
+  TYPESCRIPT
+}
+
 type Mutation {
+  """Bulk-add inline test cases. order is server-assigned by array index."""
+  addTestCases(inputs: [TestCaseInput!]!, problemId: ID!): [TestCase!]!
+
+  """Create a draft problem with topics and (optionally) code templates."""
+  createProblem(input: CreateProblemInput!): Problem!
+
+  """Delete a test case."""
+  deleteTestCase(id: ID!): Boolean!
+
+  """
+  Validate completeness (topics, templates, sample + hidden test cases, signature shape) and flip isPublished=true.
+  """
+  publishProblem(id: ID!): Problem!
+
+  """
+  Upsert a (problem, language) code template. Use the same call to create or update.
+  """
+  setCodeTemplate(input: TemplateInput!, problemId: ID!): CodeTemplate!
+
+  """
+  Hide a published problem from participants (isPublished=false). No validation.
+  """
+  unpublishProblem(id: ID!): Problem!
+
+  """
+  Patch problem metadata. topicSlugs replaces all topic links if provided.
+  """
+  updateProblem(id: ID!, input: UpdateProblemInput!): Problem!
+
   """Updates the authenticated participant profile (partial)"""
   updateProfile(input: UpdateProfileInput!): ParticipantProfile!
+
+  """Patch a single test case."""
+  updateTestCase(id: ID!, input: UpdateTestCaseInput!): TestCase!
 }
 
 type ParticipantProfile {
@@ -36,17 +186,154 @@ type ParticipantProfile {
   updatedAt: DateTime!
 }
 
+enum Permission {
+  CREATE_CONTEST
+  CREATE_PROBLEM
+  EDIT_PROBLEM
+  MANAGE_TEMPLATES
+  MANAGE_USERS
+}
+
+type Problem {
+  createdAt: DateTime!
+  createdById: ID!
+  description: String!
+  difficulty: Difficulty!
+  id: ID!
+  isPublished: Boolean!
+
+  """Numeric difficulty rating (typical range 800–3500)."""
+  rating: Int!
+  signature: Signature!
+  slug: String!
+  templates: [CodeTemplate!]!
+  testCases: [TestCase!]!
+  title: String!
+  topics: [Topic!]!
+  updatedAt: DateTime!
+}
+
 type Query {
+  """List problems including drafts (admin view)."""
+  adminProblems(filter: AdminProblemsFilterInput = {}): [Problem!]!
+
+  """
+  Generate suggested starterCode + driverCode for a given (signature, language).
+  """
+  generateTemplate(input: GenerateTemplateInput!): GeneratedTemplate!
+
   """Returns the authenticated user with their profile"""
   me: User!
 
+  """
+  Returns the authenticated admin user with their AdminProfile (admin-only)
+  """
+  myAdminProfile: AdminMe!
+
   """A simple ping query to verify GraphQL is working."""
   ping: String!
+
+  """Full nested problem view for admin (includes drafts and templates)."""
+  problemForAdmin(id: ID!): Problem!
+
+  """List topics with optional search and pagination (admin view)."""
+  topics(filter: TopicsFilterInput = {}): [Topic!]!
 }
 
 enum Role {
   ADMIN
   PARTICIPANT
+}
+
+type Signature {
+  args: [Argument!]!
+  methodName: String!
+  returnType: String!
+}
+
+input SignatureInput {
+  """Positional arguments"""
+  args: [ArgumentInput!]!
+
+  """
+  Method name on Solution class, e.g., "twoSum"
+  """
+  methodName: String!
+
+  """
+  Return type, e.g., "int[]" or "void"
+  """
+  returnType: String!
+}
+
+input TemplateInput {
+  driverCode: String!
+  language: Language!
+  starterCode: String!
+}
+
+type TestCase {
+  createdAt: DateTime!
+  explanation: String
+  id: ID!
+
+  """
+  Positional JSON array matching Problem.signature.args. Null when only GCS path is set.
+  """
+  inlineInput: JSON
+
+  """Expected return value as JSON. Null when only GCS path is set."""
+  inlineOutput: JSON
+  inputPath: String
+  isSample: Boolean!
+  order: Int!
+  outputPath: String
+  updatedAt: DateTime!
+}
+
+input TestCaseInput {
+  explanation: String
+
+  """
+  Positional JSON array matching Problem.signature.args, e.g., [[2,7,11,15], 9]
+  """
+  inlineInput: JSON!
+
+  """Expected return value as JSON, e.g., [0, 1]"""
+  inlineOutput: JSON!
+  isSample: Boolean! = false
+}
+
+type Topic {
+  description: String
+  id: ID!
+  isActive: Boolean!
+  name: String!
+  slug: String!
+}
+
+input TopicsFilterInput {
+  """Filter by isActive flag. Pass null to include inactive too."""
+  isActive: Boolean = true
+
+  """Case-insensitive contains match against name or slug."""
+  search: String
+  skip: Int = 0
+  take: Int = 50
+}
+
+input UpdateProblemInput {
+  description: String
+  difficulty: Difficulty
+
+  """Numeric difficulty rating (typical range 800–3500)."""
+  rating: Int
+  signature: SignatureInput
+  slug: String
+  title: String
+
+  """Replaces all topic links by IDs. Pass [] to clear."""
+  topicIds: [String!]
 }
 
 input UpdateProfileInput {
@@ -57,6 +344,16 @@ input UpdateProfileInput {
   gender: Gender
   skills: [String!]
   state: String
+}
+
+input UpdateTestCaseInput {
+  explanation: String
+  inlineInput: JSON
+  inlineOutput: JSON
+  isSample: Boolean
+
+  """Manual reordering of a single case."""
+  order: Int
 }
 
 type User {

@@ -1,0 +1,28 @@
+// --- TOPICS / TAGS ---
+
+model Topic {
+  id          String  @id @default(cuid())
+  slug        String  @unique // e.g., "dynamic-programming"
+  name        String  @unique // e.g., "Dynamic Programming"
+  description String? @db.Text
+  isActive    Boolean @default(true)
+
+  problems ProblemTopic[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+// Explicit junction so we can add metadata (e.g., isPrimary, order) later.
+model ProblemTopic {
+  problemId String
+  topicId   String
+
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  topic   Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@id([problemId, topicId])
+  @@index([topicId])
+}
