@@ -10,6 +10,7 @@ import { join } from 'path';
 import { PingModule } from './ping/ping.module';
 import { AuthModule } from './auth/auth.module';
 import { ProfileModule } from './profile/profile.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { ProfileModule } from './profile/profile.module';
     PingModule,
     AuthModule,
     ProfileModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],
