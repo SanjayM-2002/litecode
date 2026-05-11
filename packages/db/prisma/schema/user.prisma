@@ -23,6 +23,7 @@ model User {
   password  String?
   name      String?
   role      Role     @default(PARTICIPANT)
+  tier      UserTier @default(FREE)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -36,8 +37,10 @@ model User {
   solutionReplies          SolutionReply[]     @relation("SolutionReplyAuthor")
   discussPosts             DiscussPost[]       @relation("DiscussPostAuthor")
   discussReplies           DiscussReply[]      @relation("DiscussReplyAuthor")
+  subscriptions            Subscription[]
 
   @@index([role])
+  @@index([tier])
 }
 
 model AdminProfile {

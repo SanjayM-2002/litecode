@@ -19,6 +19,9 @@ import { SubmissionModule } from './submission/submission.module';
 import { SolutionModule } from './solution/solution.module';
 import { DiscussModule } from './discuss/discuss.module';
 import { BullBoardModule } from './bull-board/bull-board.module';
+import { EntitlementModule } from './entitlement/entitlement.module';
+import { AiModule } from './ai/ai.module';
+import { SubscriptionModule } from './subscription/subscription.module';
 
 @Module({
   imports: [
@@ -32,6 +35,7 @@ import { BullBoardModule } from './bull-board/bull-board.module';
     }),
     PrismaModule,
     CacheModule,
+    EntitlementModule,
     GraphQLModule.forRoot<ApolloDriverConfig>({
       driver: ApolloDriver,
       autoSchemaFile: join(process.cwd(), 'schema.gql'),
@@ -49,6 +53,8 @@ import { BullBoardModule } from './bull-board/bull-board.module';
     SolutionModule,
     DiscussModule,
     BullBoardModule,
+    AiModule,
+    SubscriptionModule,
   ],
   controllers: [AppController],
   providers: [AppService],

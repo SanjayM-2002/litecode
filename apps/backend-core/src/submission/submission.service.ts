@@ -8,11 +8,12 @@ import {
 import { CacheService, cacheKeys } from '@litecode/cache';
 import { GradeSubmissionJob, QUEUES } from '@litecode/queue';
 import { Prisma, PrismaService } from '@litecode/db';
-import { Role, SubmissionStatus } from '@litecode/shared-types';
+import { Role, SubmissionStatus, UserTier } from '@litecode/shared-types';
 import { Queue } from 'bullmq';
 import { clampPagination } from '../common/dto/pagination.input';
 import { buildMeta } from '../common/models/pagination-meta.model';
 import { JwtPayload } from '../auth/auth.service';
+import { EntitlementService } from '../entitlement/entitlement.service';
 import { SubmitSolutionInput } from './dto/submit-solution.input';
 import { MySubmissionsFilterInput } from './dto/my-submissions-filter.input';
 import { SubmissionModel } from './models/submission.model';
@@ -20,12 +21,14 @@ import { SubmissionsPage } from './models/submissions-page.model';
 
 const MAX_CODE_LENGTH = 65_536;
 const TTL_TEMPLATE_SEC = 86_400; // 24h — templates change rarely; invalidated by admin.setCodeTemplate
+const FREE_SUBMISSIONS_PER_PROBLEM = 5;
 
 @Injectable()
 export class SubmissionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cache: CacheService,
+    private readonly entitlement: EntitlementService,
     @InjectQueue(QUEUES.gradeSubmission)
     private readonly gradeQueue: Queue<GradeSubmissionJob>,
   ) {}
@@ -42,11 +45,26 @@ export class SubmissionService {
 
     const problem = await this.prisma.problem.findUnique({
       where: { id: input.problemId },
-      select: { id: true, isPublished: true },
+      select: { id: true, isPublished: true, tier: true },
     });
     if (!problem) throw new NotFoundException('Problem not found');
     if (!problem.isPublished) {
       throw new BadRequestException('Problem is not published');
+    }
+
+    const userTier = await this.entitlement.getTier(userId);
+
+    if (problem.tier === UserTier.PREMIUM && userTier !== UserTier.PREMIUM) {
+      throw new ForbiddenException('PROBLEM_REQUIRES_PREMIUM');
+    }
+
+    if (userTier === UserTier.FREE) {
+      const submissionsForProblem = await this.prisma.submission.count({
+        where: { userId, problemId: input.problemId },
+      });
+      if (submissionsForProblem >= FREE_SUBMISSIONS_PER_PROBLEM) {
+        throw new ForbiddenException('FREE_SUBMISSION_LIMIT_REACHED');
+      }
     }
 
     // Existence check only — cache the result so repeat submits skip the DB hit.

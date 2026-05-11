@@ -1,6 +1,10 @@
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import Editor from '@monaco-editor/react'
-import { CircleCheck, CircleX, Loader2 } from 'lucide-react'
+import { CircleCheck, CircleX, Flame, Loader2, Lock, Sparkles } from 'lucide-react'
+import { AiResponseDialog } from '@/components/AiResponseDialog'
+import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
@@ -9,7 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { VerdictBadge } from '@/components/VerdictBadge'
-import { fetchSubmission } from '@/lib/api/queries'
+import { aiRoast, fetchMe, fetchSubmission } from '@/lib/api/queries'
 import { LANGUAGE_LABELS } from '@/lib/language'
 import { MONACO_LANG } from '@/lib/language'
 import { useTheme } from '@/lib/theme'
@@ -28,6 +32,19 @@ export function SubmissionDetailDialog({ submissionId, open, onOpenChange }: Pro
     queryFn: () => fetchSubmission(submissionId!),
     enabled: open && !!submissionId,
   })
+
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: fetchMe })
+  const isPremium = me?.tier === 'PREMIUM'
+
+  const [roastOpen, setRoastOpen] = useState(false)
+  const roastMutation = useMutation({ mutationFn: aiRoast })
+
+  const handleRoast = () => {
+    if (!submissionId) return
+    setRoastOpen(true)
+    roastMutation.reset()
+    roastMutation.mutate(submissionId)
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -96,7 +113,34 @@ export function SubmissionDetailDialog({ submissionId, open, onOpenChange }: Pro
             )}
 
             <div>
-              <p className="mb-1.5 text-xs font-medium text-muted-foreground">Code</p>
+              <div className="mb-1.5 flex items-center justify-between">
+                <p className="text-xs font-medium text-muted-foreground">Code</p>
+                {isPremium ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRoast}
+                    disabled={roastMutation.isPending}
+                    title="AI roast this code"
+                  >
+                    <Sparkles className="h-3 w-3 text-[#ffa116]" />
+                    {roastMutation.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Flame className="h-3.5 w-3.5" />
+                    )}
+                    Roast
+                  </Button>
+                ) : (
+                  <Button variant="ghost" size="sm" asChild title="Premium AI feature">
+                    <Link to="/plans">
+                      <Sparkles className="h-3 w-3 text-[#ffa116]" />
+                      <Lock className="h-3.5 w-3.5" />
+                      Roast
+                    </Link>
+                  </Button>
+                )}
+              </div>
               <div className="overflow-hidden rounded-md border">
                 <Editor
                   height="360px"
@@ -116,6 +160,15 @@ export function SubmissionDetailDialog({ submissionId, open, onOpenChange }: Pro
           </div>
         )}
       </DialogContent>
+      <AiResponseDialog
+        open={roastOpen}
+        onOpenChange={setRoastOpen}
+        title="Code roast"
+        description="A senior-engineer-style takedown of your submission."
+        isLoading={roastMutation.isPending}
+        error={roastMutation.error as Error | null}
+        response={roastMutation.data ?? null}
+      />
     </Dialog>
   )
 }

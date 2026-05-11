@@ -8,6 +8,7 @@ export {
   type Role,
   type SolvedStatus,
   type SubmissionStatus,
+  type UserTier,
   type Verdict,
 } from '@litecode/shared-types'
 
@@ -18,8 +19,57 @@ import type {
   Language,
   Role,
   SubmissionStatus,
+  UserTier,
   Verdict,
 } from '@litecode/shared-types'
+
+// PlanInterval / SubscriptionStatus are GraphQL enums sourced from Prisma —
+// no Zod schema in shared-types yet, so define string-literal types here.
+// Keep in sync with packages/db/prisma/schema/subscription.prisma.
+export type PlanInterval = 'MONTHLY' | 'YEARLY'
+
+export type SubscriptionStatus =
+  | 'CREATED'
+  | 'AUTHENTICATED'
+  | 'ACTIVE'
+  | 'PENDING'
+  | 'HALTED'
+  | 'CANCELLED'
+  | 'COMPLETED'
+  | 'EXPIRED'
+
+export interface Plan {
+  interval: PlanInterval
+  amount: number // paise
+  currency: string
+  label: string
+}
+
+export interface Subscription {
+  id: string
+  planInterval: PlanInterval
+  status: SubscriptionStatus
+  razorpaySubscriptionId: string
+  currentPeriodStart: string | null
+  currentPeriodEnd: string | null
+  cancelledAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface StartSubscriptionResult {
+  razorpaySubscriptionId: string
+  razorpayKeyId: string
+  shortUrl: string | null
+}
+
+export interface AiResponse {
+  text: string
+  provider: string
+  model: string
+  inputTokens: number | null
+  outputTokens: number | null
+}
 
 export interface PublicUser {
   id: string
@@ -139,6 +189,7 @@ export interface MeUser {
   email: string
   name: string | null
   role: Role
+  tier: UserTier
   createdAt: string
   participantProfile: ParticipantProfile | null
 }

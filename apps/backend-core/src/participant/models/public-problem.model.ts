@@ -1,5 +1,5 @@
 import { Field, Float, ID, Int, ObjectType } from '@nestjs/graphql';
-import { Difficulty } from '@litecode/shared-types';
+import { Difficulty, UserTier } from '@litecode/shared-types';
 import { SignatureModel } from '../../admin/models/signature.model';
 import { TopicModel } from '../../admin/models/topic.model';
 import { PublicCodeTemplateModel } from './public-code-template.model';
@@ -29,6 +29,11 @@ export class PublicProblemModel {
 
   @Field(() => Difficulty)
   difficulty: Difficulty;
+
+  @Field(() => UserTier, {
+    description: 'FREE problems are visible to everyone; PREMIUM requires an active subscription.',
+  })
+  tier: UserTier;
 
   @Field(() => Int)
   rating: number;
