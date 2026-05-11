@@ -1,0 +1,66 @@
+// --- SUBSCRIPTIONS ---
+
+enum UserTier {
+  FREE
+  PREMIUM
+}
+
+enum PlanInterval {
+  MONTHLY
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  CREATED       // razorpay subscription created, awaiting first payment
+  AUTHENTICATED // mandate authorized
+  ACTIVE        // paying on schedule
+  PENDING       // payment retry in progress
+  HALTED        // retries exhausted; tier stays PREMIUM until currentPeriodEnd
+  CANCELLED     // user-cancelled; tier stays PREMIUM until currentPeriodEnd
+  COMPLETED     // term ended naturally (e.g. fixed-count plan)
+  EXPIRED
+}
+
+model Subscription {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  planInterval           PlanInterval
+  razorpaySubscriptionId String             @unique
+  razorpayCustomerId     String?
+  status                 SubscriptionStatus @default(CREATED)
+
+  // Window during which the user is entitled to PREMIUM. The nightly
+  // downgrade cron compares `currentPeriodEnd` to now() as a defensive
+  // backstop against missed webhooks.
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+
+  cancelledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+  @@index([currentPeriodEnd])
+}
+
+// Idempotency log for Razorpay webhooks. The unique `razorpayEventId`
+// makes duplicate deliveries a no-op (insert returns unique-violation,
+// handler short-circuits with 200).
+model WebhookEvent {
+  id              String @id @default(cuid())
+  razorpayEventId String @unique
+
+  eventType String
+  payload   Json
+
+  processedAt DateTime?
+  error       String?
+
+  receivedAt DateTime @default(now())
+
+  @@index([eventType, processedAt])
+}

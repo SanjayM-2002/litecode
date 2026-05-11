@@ -12,21 +12,23 @@ const normalize = (v: Nullable<string>): string => (v === null || v === undefine
 export const cacheKeys = {
   // ---- Public problem list (global slice) ----
   // Per-user solved/attempted flags are overlaid at the resolver from
-  // userSolvedMap; they are NOT part of this key.
+  // userSolvedMap; they are NOT part of this key. `tier` partitions the
+  // slice: FREE viewers see only FREE problems, PREMIUM viewers see all.
   problemsList(params: {
+    tier: string;
     difficulty: Nullable<string>;
     page: number;
     limit: number;
   }): string {
-    return `problems:list:v1:d=${normalize(params.difficulty)}:p=${params.page}:l=${params.limit}`;
+    return `problems:list:v2:t=${params.tier}:d=${normalize(params.difficulty)}:p=${params.page}:l=${params.limit}`;
   },
   problemsListPattern(): string {
-    return 'problems:list:v1:*';
+    return 'problems:list:v2:*';
   },
 
   // ---- Public problem detail by slug ----
   problemBySlug(slug: string): string {
-    return `problem:v1:${slug}`;
+    return `problem:v2:${slug}`;
   },
 
   // ---- Active topics list ----
@@ -48,5 +50,11 @@ export const cacheKeys = {
   // ---- Per-user solved/attempted map ----
   userSolvedMap(userId: string): string {
     return `user:${userId}:solved-map`;
+  },
+
+  // ---- Per-user subscription tier (FREE | PREMIUM) ----
+  // Invalidated by webhook handlers and subscription mutations.
+  userTier(userId: string): string {
+    return `user:${userId}:tier:v1`;
   },
 };

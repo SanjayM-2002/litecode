@@ -1,7 +1,14 @@
 import { type FormEvent, useEffect, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
-import { fetchMe, updateProfile, type UpdateProfileInput } from '@/lib/api/queries'
+import {
+  cancelSubscription,
+  fetchMe,
+  fetchMySubscription,
+  updateProfile,
+  type UpdateProfileInput,
+} from '@/lib/api/queries'
 import { Avatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,7 +22,126 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import type { Gender } from '@/lib/types'
+import type { Gender, Subscription, SubscriptionStatus } from '@/lib/types'
+
+const STATUS_LABEL: Record<SubscriptionStatus, string> = {
+  CREATED: 'Awaiting payment',
+  AUTHENTICATED: 'Setting up',
+  ACTIVE: 'Active',
+  PENDING: 'Payment pending',
+  HALTED: 'Payment failed (will retry)',
+  CANCELLED: 'Cancelled',
+  COMPLETED: 'Completed',
+  EXPIRED: 'Expired',
+}
+
+function formatDate(iso: string | null): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+function SubscriptionSection({
+  subscription,
+  tier,
+}: {
+  subscription: Subscription | null
+  tier: 'FREE' | 'PREMIUM'
+}) {
+  const queryClient = useQueryClient()
+  const cancelMutation = useMutation({
+    mutationFn: cancelSubscription,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mySubscription'] })
+      queryClient.invalidateQueries({ queryKey: ['me'] })
+    },
+  })
+
+  // Treat anything still in the entitling/active set as "needs a cancel button".
+  const canCancel =
+    !!subscription &&
+    ['CREATED', 'AUTHENTICATED', 'ACTIVE', 'PENDING', 'HALTED'].includes(
+      subscription.status,
+    )
+
+  if (tier === 'FREE' && !subscription) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Subscription</CardTitle>
+          <CardDescription>You're on the free plan.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild>
+            <Link to="/plans">View premium plans</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Subscription</CardTitle>
+        <CardDescription>
+          {tier === 'PREMIUM' ? 'You\'re on the Premium plan.' : 'Subscription details.'}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        {subscription && (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <span className="text-muted-foreground">Plan</span>
+              <span className="font-medium">
+                {subscription.planInterval === 'MONTHLY' ? 'Monthly' : 'Yearly'}
+              </span>
+              <span className="text-muted-foreground">Status</span>
+              <span className="font-medium">{STATUS_LABEL[subscription.status]}</span>
+              <span className="text-muted-foreground">Current period ends</span>
+              <span className="font-medium">{formatDate(subscription.currentPeriodEnd)}</span>
+              {subscription.cancelledAt && (
+                <>
+                  <span className="text-muted-foreground">Cancelled on</span>
+                  <span className="font-medium">{formatDate(subscription.cancelledAt)}</span>
+                </>
+              )}
+            </div>
+            {cancelMutation.isError && (
+              <p className="text-sm text-destructive">
+                {(cancelMutation.error as Error).message || 'Failed to cancel'}
+              </p>
+            )}
+            {canCancel && subscription.status !== 'CANCELLED' && (
+              <div className="pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (confirm('Cancel subscription? You keep Premium until the period ends.')) {
+                      cancelMutation.mutate()
+                    }
+                  }}
+                  disabled={cancelMutation.isPending}
+                >
+                  {cancelMutation.isPending ? 'Cancelling…' : 'Cancel subscription'}
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+        {!subscription && tier === 'PREMIUM' && (
+          <p className="text-muted-foreground">
+            Your account is Premium but we don't have a subscription record on file. Contact support
+            if this looks wrong.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
 
 const GENDER_LABEL: Record<Gender, string> = {
   MALE: 'Male',
@@ -28,10 +154,36 @@ const GENDER_NONE = '__none__'
 
 export function ProfilePage() {
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const justSubscribed = searchParams.get('subscribed') === '1'
+
   const { data: me, isLoading } = useQuery({
     queryKey: ['me'],
     queryFn: fetchMe,
   })
+
+  // Poll subscription state for ~30s after a successful Razorpay Checkout,
+  // since webhook → DB → tier flip is not instantaneous. Stops polling once
+  // the user is PREMIUM or once we've polled enough times.
+  const subscriptionQuery = useQuery({
+    queryKey: ['mySubscription'],
+    queryFn: fetchMySubscription,
+    refetchInterval: (q) => {
+      if (!justSubscribed) return false
+      const sub = q.state.data
+      if (sub?.status === 'ACTIVE') return false
+      return 2000
+    },
+  })
+
+  // Once the subscription lands as ACTIVE, drop the query-param so polling stops
+  // permanently and the URL is clean for refreshes.
+  useEffect(() => {
+    if (justSubscribed && subscriptionQuery.data?.status === 'ACTIVE') {
+      setSearchParams({}, { replace: true })
+      queryClient.invalidateQueries({ queryKey: ['me'] })
+    }
+  }, [justSubscribed, subscriptionQuery.data?.status, setSearchParams, queryClient])
 
   const [bio, setBio] = useState('')
   const [city, setCity] = useState('')
@@ -100,12 +252,30 @@ export function ProfilePage() {
               <div className="mt-2 flex gap-4 text-xs text-muted-foreground">
                 <span>Rating: <span className="font-medium text-foreground">{p.rating}</span></span>
                 <span>Coins: <span className="font-medium text-foreground">{p.coins}</span></span>
-                {p.isPremium && <span className="font-medium text-[#ffb800]">Premium</span>}
+                {me.tier === 'PREMIUM' && (
+                  <span className="font-medium text-[#ffb800]">Premium</span>
+                )}
               </div>
             )}
           </div>
         </CardContent>
       </Card>
+
+      {justSubscribed && subscriptionQuery.data?.status !== 'ACTIVE' && (
+        <Card className="mb-6 border-[#ffa116]/40 bg-[#ffa116]/5">
+          <CardContent className="flex items-center gap-3 p-4 text-sm">
+            <Loader2 className="h-4 w-4 animate-spin text-[#ffa116]" />
+            Waiting for Razorpay to confirm your payment — this usually takes a few seconds.
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="mb-6">
+        <SubscriptionSection
+          subscription={subscriptionQuery.data ?? null}
+          tier={me.tier}
+        />
+      </div>
 
       <Card>
         <CardHeader>

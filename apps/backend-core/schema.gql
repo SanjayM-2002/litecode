@@ -50,6 +50,41 @@ type AdminProfile {
   updatedAt: DateTime!
 }
 
+input AiHelpInput {
+  code: String!
+  language: Language!
+  problemId: ID!
+
+  """The user's question about the problem or their current approach."""
+  question: String!
+}
+
+input AiHintInput {
+  """
+  Optional in-progress code so the hint can be tailored to where the user is stuck.
+  """
+  code: String
+  language: Language
+  problemId: ID!
+}
+
+type AiResponse {
+  inputTokens: Int
+  model: String!
+  outputTokens: Int
+
+  """Provider name (mock|openai|gemini|grok)."""
+  provider: String!
+  text: String!
+}
+
+input AiRoastInput {
+  """
+  A submission belonging to the caller. Code, language, and problem are loaded server-side.
+  """
+  submissionId: ID!
+}
+
 type Argument {
   name: String!
   type: String!
@@ -240,6 +275,20 @@ type Mutation {
   """Bulk-add inline test cases. order is server-assigned by array index."""
   addTestCases(inputs: [TestCaseInput!]!, problemId: ID!): [TestCase!]!
 
+  """Get conceptual help for the user's in-progress code. Premium only."""
+  aiHelp(input: AiHelpInput!): AiResponse!
+
+  """Get a hint for a problem. Premium only."""
+  aiHint(input: AiHintInput!): AiResponse!
+
+  """Roast the caller's own submission. Premium only."""
+  aiRoast(input: AiRoastInput!): AiResponse!
+
+  """
+  Cancel the caller's active subscription. They keep PREMIUM until currentPeriodEnd.
+  """
+  cancelSubscription: Subscription!
+
   """Create a new discuss post."""
   createDiscussPost(input: CreateDiscussPostInput!): DiscussPost!
 
@@ -273,6 +322,11 @@ type Mutation {
   Upsert a (problem, language) code template. Use the same call to create or update.
   """
   setCodeTemplate(input: TemplateInput!, problemId: ID!): CodeTemplate!
+
+  """
+  Create a Razorpay subscription for the chosen plan. Returns IDs the frontend hands to Razorpay Checkout.
+  """
+  startSubscription(input: StartSubscriptionInput!): StartSubscriptionResult!
 
   """
   Submit a solution. Validates problem is published and language is supported. Returns the created Submission immediately (status=PENDING) — poll submission(id) for the verdict.
@@ -358,6 +412,21 @@ enum Permission {
   MANAGE_USERS
 }
 
+type Plan {
+  """Price in the smallest unit of the currency (paise for INR)."""
+  amount: Int!
+  currency: String!
+  interval: PlanInterval!
+
+  """Human-readable price label."""
+  label: String!
+}
+
+enum PlanInterval {
+  MONTHLY
+  YEARLY
+}
+
 type Problem {
   createdAt: DateTime!
   createdById: ID!
@@ -438,6 +507,11 @@ type PublicProblem {
   """
   solved: Boolean!
   templates: [PublicCodeTemplate!]!
+
+  """
+  FREE problems are visible to everyone; PREMIUM requires an active subscription.
+  """
+  tier: UserTier!
   timeLimit_ms: Int!
   title: String!
   topics: [Topic!]!
@@ -504,8 +578,14 @@ type Query {
   """Authenticated user's own submissions, paginated."""
   mySubmissions(filter: MySubmissionsFilterInput = {}): SubmissionsPage!
 
+  """Caller's most recent subscription (any status), or null if none."""
+  mySubscription: Subscription
+
   """A simple ping query to verify GraphQL is working."""
   ping: String!
+
+  """List available subscription plans. Public — no auth required."""
+  plans: [Plan!]!
 
   """
   Get a single published problem by slug. Returns sample test cases, code templates without driver code, and solved/attempted state.
@@ -609,6 +689,19 @@ enum SolvedStatus {
   UNATTEMPTED
 }
 
+input StartSubscriptionInput {
+  interval: PlanInterval!
+}
+
+type StartSubscriptionResult {
+  """Public Razorpay key id for Checkout."""
+  razorpayKeyId: String!
+  razorpaySubscriptionId: String!
+
+  """Hosted Razorpay authorization URL (optional, alternative to Checkout)."""
+  shortUrl: String
+}
+
 type Submission {
   """User-submitted source (just the class body)."""
   code: String!
@@ -648,6 +741,33 @@ input SubmitSolutionInput {
   code: String!
   language: Language!
   problemId: ID!
+}
+
+type Subscription {
+  cancelledAt: DateTime
+  createdAt: DateTime!
+
+  """Tier remains PREMIUM until this date even after cancellation."""
+  currentPeriodEnd: DateTime
+  currentPeriodStart: DateTime
+  id: ID!
+  planInterval: PlanInterval!
+
+  """Razorpay subscription id (sub_XXX)."""
+  razorpaySubscriptionId: String!
+  status: SubscriptionStatus!
+  updatedAt: DateTime!
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  AUTHENTICATED
+  CANCELLED
+  COMPLETED
+  CREATED
+  EXPIRED
+  HALTED
+  PENDING
 }
 
 input TemplateInput {
@@ -776,6 +896,12 @@ type User {
   name: String
   participantProfile: ParticipantProfile
   role: Role!
+  tier: UserTier!
+}
+
+enum UserTier {
+  FREE
+  PREMIUM
 }
 
 enum Verdict {

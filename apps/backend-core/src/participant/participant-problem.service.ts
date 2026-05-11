@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { CacheService, cacheKeys } from '@litecode/cache';
 import { Prisma, PrismaService } from '@litecode/db';
-import { SolvedStatus, Verdict } from '@litecode/shared-types';
+import { SolvedStatus, UserTier, Verdict } from '@litecode/shared-types';
 import { clampPagination } from '../common/dto/pagination.input';
 import { buildMeta, PaginationMeta } from '../common/models/pagination-meta.model';
+import { EntitlementService } from '../entitlement/entitlement.service';
 import { ProblemsFilterInput } from './dto/problems-filter.input';
 import { PublicTopicsFilterInput } from './dto/topics-filter.input';
 import './dto/solved-status.enum';
@@ -41,17 +42,25 @@ export class ParticipantProblemService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cache: CacheService,
+    private readonly entitlement: EntitlementService,
   ) {}
+
+  private async resolveViewerTier(userId: string | null): Promise<UserTier> {
+    if (!userId) return UserTier.FREE;
+    return this.entitlement.getTier(userId);
+  }
 
   async listProblems(
     filter: ProblemsFilterInput,
     userId: string | null,
   ): Promise<PublicProblemsPage> {
     const { page, limit } = clampPagination(filter);
+    const viewerTier = await this.resolveViewerTier(userId);
 
     // Cache only the bounded, global slice of the filter space. Variant axes:
-    // difficulty (≤4) × page × limit. Search/rating/topicSlug are unbounded;
-    // solvedStatus changes the SQL itself so it can't be a shared key.
+    // tier (2) × difficulty (≤4) × page × limit. Search/rating/topicSlug are
+    // unbounded; solvedStatus changes the SQL itself so it can't be a shared
+    // key.
     const cacheable =
       !filter.search &&
       filter.minRating === undefined &&
@@ -62,6 +71,7 @@ export class ParticipantProblemService {
     let base: CachedProblemsPage;
     if (cacheable) {
       const key = cacheKeys.problemsList({
+        tier: viewerTier,
         difficulty: filter.difficulty ?? null,
         page,
         limit,
@@ -69,10 +79,10 @@ export class ParticipantProblemService {
       base = await this.cache.getOrSet<CachedProblemsPage>(
         key,
         TTL_PROBLEMS_LIST_SEC,
-        () => this.queryProblemsPageFromDb(filter, page, limit, null),
+        () => this.queryProblemsPageFromDb(filter, page, limit, null, viewerTier),
       );
     } else {
-      base = await this.queryProblemsPageFromDb(filter, page, limit, userId);
+      base = await this.queryProblemsPageFromDb(filter, page, limit, userId, viewerTier);
     }
 
     const items = await this.overlaySolvedForList(base.items, userId);
@@ -89,6 +99,13 @@ export class ParticipantProblemService {
       () => this.queryProblemBySlugFromDb(slug),
     );
     const base = this.reviveCachedProblem(cached);
+
+    if (base.tier === UserTier.PREMIUM) {
+      const viewerTier = await this.resolveViewerTier(userId);
+      if (viewerTier !== UserTier.PREMIUM) {
+        throw new ForbiddenException('PROBLEM_REQUIRES_PREMIUM');
+      }
+    }
 
     const solvedMap = await this.getSolvedMap(userId);
     const status = solvedMap[base.id];
@@ -121,8 +138,9 @@ export class ParticipantProblemService {
     page: number,
     limit: number,
     userIdForFilter: string | null,
+    viewerTier: UserTier,
   ): Promise<CachedProblemsPage> {
-    const where = this.buildWhere(filter, userIdForFilter);
+    const where = this.buildWhere(filter, userIdForFilter, viewerTier);
     const skip = (page - 1) * limit;
 
     const [problems, total] = await this.prisma.$transaction([
@@ -183,8 +201,12 @@ export class ParticipantProblemService {
   private buildWhere(
     filter: ProblemsFilterInput,
     userId: string | null,
+    viewerTier: UserTier,
   ): Prisma.ProblemWhereInput {
     const where: Prisma.ProblemWhereInput = { isPublished: true };
+
+    // FREE viewers see only FREE problems; PREMIUM sees everything.
+    if (viewerTier !== UserTier.PREMIUM) where.tier = UserTier.FREE;
 
     if (filter.difficulty) where.difficulty = filter.difficulty;
     if (filter.search) where.title = { contains: filter.search, mode: 'insensitive' };
@@ -284,6 +306,7 @@ export class ParticipantProblemService {
       slug: problem.slug,
       description: problem.description,
       difficulty: problem.difficulty,
+      tier: problem.tier as UserTier,
       rating: problem.rating,
       timeLimit_ms: problem.timeLimit_ms,
       memoryLimit_kb: problem.memoryLimit_kb,

@@ -4,7 +4,9 @@ import { ZodValidationPipe } from 'nestjs-zod';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // rawBody=true exposes `req.rawBody` for HMAC verification of Razorpay webhooks.
+  // Other routes still receive parsed JSON via the default body parser.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   app.enableCors();
   app.useGlobalPipes(new ZodValidationPipe());
 

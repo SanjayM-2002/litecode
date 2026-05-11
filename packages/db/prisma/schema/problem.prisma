@@ -12,7 +12,8 @@ model Problem {
   timeLimit_ms   Int @default(2000)
   memoryLimit_kb Int @default(262144) // 256 MB
 
-  isPublished Boolean    @default(false)
+  isPublished Boolean  @default(false)
+  tier        UserTier @default(FREE)
 
   // Code generation metadata. Split into scalar fields for queryability + type safety.
   methodName String
@@ -40,6 +41,7 @@ model Problem {
   @@index([createdAt])
   @@index([createdById])
   @@index([isPublished])
+  @@index([tier])
 }
 
 // --- TEST CASES ---
