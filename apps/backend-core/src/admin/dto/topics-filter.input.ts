@@ -15,9 +15,9 @@ export class TopicsFilterInput {
   })
   isActive?: boolean;
 
-  @Field(() => Int, { nullable: true, defaultValue: 50 })
-  take?: number;
+  @Field(() => Int, { nullable: true, defaultValue: 1 })
+  page?: number;
 
-  @Field(() => Int, { nullable: true, defaultValue: 0 })
-  skip?: number;
+  @Field(() => Int, { nullable: true, defaultValue: 20 })
+  limit?: number;
 }

@@ -1,5 +1,5 @@
 import { Field, ID, Int, ObjectType } from '@nestjs/graphql';
-import { Difficulty } from '@litecode/db';
+import { Difficulty } from '@litecode/shared-types';
 import { CodeTemplateModel } from './code-template.model';
 import { SignatureModel } from './signature.model';
 import { TestCaseModel } from './test-case.model';

@@ -1,0 +1,26 @@
+import { Field, ID, Int, ObjectType } from '@nestjs/graphql';
+import GraphQLJSON from 'graphql-type-json';
+
+/**
+ * Sample test cases visible to participants.
+ * Hidden cases are filtered out at the resolver layer; this type is only ever populated with isSample=true rows.
+ */
+@ObjectType('PublicTestCase')
+export class PublicTestCaseModel {
+  @Field(() => ID)
+  id: string;
+
+  @Field(() => GraphQLJSON, {
+    description: 'Positional JSON array matching Problem.signature.args.',
+  })
+  inlineInput: unknown;
+
+  @Field(() => GraphQLJSON, { description: 'Expected return value as JSON.' })
+  inlineOutput: unknown;
+
+  @Field(() => String, { nullable: true })
+  explanation: string | null;
+
+  @Field(() => Int)
+  order: number;
+}

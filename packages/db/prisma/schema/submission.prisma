@@ -1,0 +1,54 @@
+// --- SUBMISSIONS ---
+
+enum SubmissionStatus {
+  PENDING // queued, awaiting worker
+  RUNNING // worker picked up, executing test cases
+  GRADED  // final verdict written
+}
+
+enum Verdict {
+  ACCEPTED
+  WRONG_ANSWER
+  TIME_LIMIT_EXCEEDED
+  MEMORY_LIMIT_EXCEEDED
+  RUNTIME_ERROR
+  COMPILATION_ERROR
+  INTERNAL_ERROR
+}
+
+model Submission {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  problemId String
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  language Language
+  code     String   @db.Text
+
+  status  SubmissionStatus @default(PENDING)
+  verdict Verdict?
+
+  // Per-test-case detail. Shape:
+  // [{ testCaseId, verdict, runtime_ms, memory_kb, stdout, stderr, isSample }]
+  testResults Json?
+
+  // Aggregates (max across cases).
+  runtime_ms Int?
+  memory_kb  Int?
+
+  // Failure context.
+  failedTestCaseId String?
+  errorMessage     String? @db.Text
+
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  @@index([userId, createdAt])
+  @@index([problemId, verdict])
+  @@index([userId, problemId]) // for solved/attempted lookups in problem listing
+  @@index([status])
+}
