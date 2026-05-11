@@ -263,15 +263,15 @@ export function ProblemDetailPage() {
                       <TabsTrigger value="result">Test Result</TabsTrigger>
                     </TabsList>
                     <div className="flex items-center gap-1.5 pr-2">
-                      <Button
+                      {/* <Button
                         variant="secondary"
                         size="sm"
                         disabled
-                        title="Run requires a /run endpoint — not yet exposed by backend"
+                        title="Run"
                       >
                         <Play className="h-3.5 w-3.5" />
                         Run
-                      </Button>
+                      </Button> */}
                       <Button
                         variant="success"
                         size="sm"

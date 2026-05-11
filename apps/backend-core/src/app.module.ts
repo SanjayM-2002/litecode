@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
+import { CacheModule } from '@litecode/cache';
 import { PrismaModule } from '@litecode/db';
 import { getRedisConnection } from '@litecode/queue';
 import { AppController } from './app.controller';
@@ -30,6 +31,7 @@ import { BullBoardModule } from './bull-board/bull-board.module';
       }),
     }),
     PrismaModule,
+    CacheModule,
     GraphQLModule.forRoot<ApolloDriverConfig>({
       driver: ApolloDriver,
       autoSchemaFile: join(process.cwd(), 'schema.gql'),
