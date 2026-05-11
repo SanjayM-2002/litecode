@@ -1,5 +1,6 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { CacheService, cacheKeys } from '@litecode/cache';
 import { PrismaService, Submission, TestCase, Prisma } from '@litecode/db';
 import { Language, SubmissionStatus, Verdict } from '@litecode/shared-types';
 import {
@@ -30,6 +31,7 @@ export class GraderService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly cache: CacheService,
     @Inject(JUDGE_CLIENT) private readonly judge: JudgeClient,
     @InjectQueue(QUEUES.updateProblemStats)
     private readonly statsQueue: Queue<UpdateProblemStatsJob>,
@@ -166,6 +168,9 @@ export class GraderService {
       },
     });
 
+    // Verdict landed → the user's solved/attempted flags may have changed.
+    await this.cache.del(cacheKeys.userSolvedMap(submission.userId));
+
     this.logger.log(
       `Submission ${submission.id} → ${aggregateVerdict} (runtime ${maxRuntime}ms, memory ${maxMemory}KB)`,
     );
@@ -221,5 +226,9 @@ export class GraderService {
         completedAt: new Date(),
       },
     });
+    // A failed-grading verdict still flips the user from unattempted → attempted
+    // (the submission row exists). Bust the solved-map so the next list/detail
+    // request re-derives flags.
+    await this.cache.del(cacheKeys.userSolvedMap(submission.userId));
   }
 }

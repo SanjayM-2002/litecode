@@ -1,8 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { CacheService, cacheKeys } from '@litecode/cache';
 import { Prisma, PrismaService } from '@litecode/db';
 import { SolvedStatus, Verdict } from '@litecode/shared-types';
 import { clampPagination } from '../common/dto/pagination.input';
-import { buildMeta } from '../common/models/pagination-meta.model';
+import { buildMeta, PaginationMeta } from '../common/models/pagination-meta.model';
 import { ProblemsFilterInput } from './dto/problems-filter.input';
 import { PublicTopicsFilterInput } from './dto/topics-filter.input';
 import './dto/solved-status.enum';
@@ -24,16 +25,105 @@ type PublicProblemWithRelations = Prisma.ProblemGetPayload<{
   include: typeof PUBLIC_PROBLEM_INCLUDE;
 }>;
 
+// Cached entries store the global slice only — `solved`/`attempted` are stripped
+// before write and overlaid from the per-user map at read time.
+type CachedProblem = Omit<PublicProblemModel, 'solved' | 'attempted'>;
+type CachedProblemsPage = { items: CachedProblem[]; meta: PaginationMeta };
+type SolvedMap = Record<string, { solved: boolean; attempted: boolean }>;
+
+const TTL_PROBLEMS_LIST_SEC = 600; // 10 min
+const TTL_PROBLEM_DETAIL_SEC = 1800; // 30 min
+const TTL_TOPICS_LIST_SEC = 1800; // 30 min
+const TTL_USER_SOLVED_MAP_SEC = 300; // 5 min
+
 @Injectable()
 export class ParticipantProblemService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache: CacheService,
+  ) {}
 
   async listProblems(
     filter: ProblemsFilterInput,
     userId: string | null,
   ): Promise<PublicProblemsPage> {
-    const where = this.buildWhere(filter, userId);
-    const { page, limit, skip } = clampPagination(filter);
+    const { page, limit } = clampPagination(filter);
+
+    // Cache only the bounded, global slice of the filter space. Variant axes:
+    // difficulty (≤4) × page × limit. Search/rating/topicSlug are unbounded;
+    // solvedStatus changes the SQL itself so it can't be a shared key.
+    const cacheable =
+      !filter.search &&
+      filter.minRating === undefined &&
+      filter.maxRating === undefined &&
+      !filter.topicSlug &&
+      !filter.solvedStatus;
+
+    let base: CachedProblemsPage;
+    if (cacheable) {
+      const key = cacheKeys.problemsList({
+        difficulty: filter.difficulty ?? null,
+        page,
+        limit,
+      });
+      base = await this.cache.getOrSet<CachedProblemsPage>(
+        key,
+        TTL_PROBLEMS_LIST_SEC,
+        () => this.queryProblemsPageFromDb(filter, page, limit, null),
+      );
+    } else {
+      base = await this.queryProblemsPageFromDb(filter, page, limit, userId);
+    }
+
+    const items = await this.overlaySolvedForList(base.items, userId);
+    return { items, meta: base.meta };
+  }
+
+  async getProblemBySlug(
+    slug: string,
+    userId: string | null,
+  ): Promise<PublicProblemModel> {
+    const cached = await this.cache.getOrSet<CachedProblem>(
+      cacheKeys.problemBySlug(slug),
+      TTL_PROBLEM_DETAIL_SEC,
+      () => this.queryProblemBySlugFromDb(slug),
+    );
+    const base = this.reviveCachedProblem(cached);
+
+    const solvedMap = await this.getSolvedMap(userId);
+    const status = solvedMap[base.id];
+    return {
+      ...base,
+      solved: status?.solved ?? false,
+      attempted: status?.attempted ?? false,
+    };
+  }
+
+  async listTopics(filter: PublicTopicsFilterInput): Promise<TopicsPage> {
+    const { page, limit } = clampPagination(filter);
+
+    // Free-text search bypasses the cache (unbounded cardinality).
+    if (filter.search) {
+      return this.queryTopicsPageFromDb(filter, page, limit);
+    }
+
+    return this.cache.getOrSet<TopicsPage>(
+      cacheKeys.topicsList({ page, limit }),
+      TTL_TOPICS_LIST_SEC,
+      () => this.queryTopicsPageFromDb(filter, page, limit),
+    );
+  }
+
+  // ---------- DB loaders ----------
+
+  private async queryProblemsPageFromDb(
+    filter: ProblemsFilterInput,
+    page: number,
+    limit: number,
+    userIdForFilter: string | null,
+  ): Promise<CachedProblemsPage> {
+    const where = this.buildWhere(filter, userIdForFilter);
+    const skip = (page - 1) * limit;
 
     const [problems, total] = await this.prisma.$transaction([
       this.prisma.problem.findMany({
@@ -46,26 +136,46 @@ export class ParticipantProblemService {
       this.prisma.problem.count({ where }),
     ]);
 
-    const status = await this.computeSolvedMap(
-      userId,
-      problems.map((p) => p.id),
-    );
-
     return {
-      items: problems.map((p) => this.toPublicModel(p, status)),
+      items: problems.map((p) => this.toCachedProblem(p)),
       meta: buildMeta(total, page, limit),
     };
   }
 
-  async getProblemBySlug(slug: string, userId: string | null): Promise<PublicProblemModel> {
+  private async queryProblemBySlugFromDb(slug: string): Promise<CachedProblem> {
     const problem = await this.prisma.problem.findFirst({
       where: { slug, isPublished: true },
       include: PUBLIC_PROBLEM_INCLUDE,
     });
     if (!problem) throw new NotFoundException('Problem not found');
+    return this.toCachedProblem(problem);
+  }
 
-    const status = await this.computeSolvedMap(userId, [problem.id]);
-    return this.toPublicModel(problem, status);
+  private async queryTopicsPageFromDb(
+    filter: PublicTopicsFilterInput,
+    page: number,
+    limit: number,
+  ): Promise<TopicsPage> {
+    const where: Prisma.TopicWhereInput = { isActive: true };
+    if (filter.search) {
+      where.OR = [
+        { name: { contains: filter.search, mode: 'insensitive' } },
+        { slug: { contains: filter.search, mode: 'insensitive' } },
+      ];
+    }
+    const skip = (page - 1) * limit;
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.topic.findMany({
+        where,
+        take: limit,
+        skip,
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.topic.count({ where }),
+    ]);
+
+    return { items, meta: buildMeta(total, page, limit) };
   }
 
   // ---------- helpers ----------
@@ -109,53 +219,65 @@ export class ParticipantProblemService {
     return where;
   }
 
-  /**
-   * For each problem id, computes whether the user has any submission and any ACCEPTED submission.
-   * Returns a map for O(1) lookup when projecting.
-   */
-  private async computeSolvedMap(
-    userId: string | null,
-    problemIds: string[],
-  ): Promise<Map<string, { attempted: boolean; solved: boolean }>> {
-    const map = new Map<string, { attempted: boolean; solved: boolean }>();
-    if (!userId || problemIds.length === 0) return map;
+  // Per-user solved/attempted lookup. Cached as a single map covering every
+  // problem the user has touched, regardless of which page they're viewing.
+  // Invalidated by the grader worker when a verdict lands.
+  private async getSolvedMap(userId: string | null): Promise<SolvedMap> {
+    if (!userId) return {};
+    return this.cache.getOrSet<SolvedMap>(
+      cacheKeys.userSolvedMap(userId),
+      TTL_USER_SOLVED_MAP_SEC,
+      async () => {
+        const map: SolvedMap = {};
 
-    const rows = await this.prisma.submission.groupBy({
-      by: ['problemId'],
-      where: { userId, problemId: { in: problemIds } },
-      _max: { verdict: true },
-      _count: { _all: true },
-    });
+        const attempted = await this.prisma.submission.findMany({
+          where: { userId },
+          select: { problemId: true },
+          distinct: ['problemId'],
+        });
+        for (const { problemId } of attempted) {
+          map[problemId] = { attempted: true, solved: false };
+        }
 
-    for (const row of rows) {
-      map.set(row.problemId, {
-        attempted: row._count._all > 0,
-        // _max.verdict over a string-enum yields the lexicographically max verdict.
-        // We need an explicit ACCEPTED check instead — do a follow-up cheap query.
-        solved: false,
-      });
-    }
+        const accepted = await this.prisma.submission.findMany({
+          where: { userId, verdict: Verdict.ACCEPTED },
+          select: { problemId: true },
+          distinct: ['problemId'],
+        });
+        for (const { problemId } of accepted) {
+          map[problemId] = { attempted: true, solved: true };
+        }
 
-    // Refine `solved`: cheap second query for ACCEPTED-only matches.
-    const acceptedRows = await this.prisma.submission.findMany({
-      where: { userId, problemId: { in: problemIds }, verdict: Verdict.ACCEPTED },
-      select: { problemId: true },
-      distinct: ['problemId'],
-    });
-    for (const { problemId } of acceptedRows) {
-      const existing = map.get(problemId) ?? { attempted: true, solved: false };
-      existing.solved = true;
-      map.set(problemId, existing);
-    }
-
-    return map;
+        return map;
+      },
+    );
   }
 
-  private toPublicModel(
-    problem: PublicProblemWithRelations,
-    status: Map<string, { attempted: boolean; solved: boolean }>,
-  ): PublicProblemModel {
-    const s = status.get(problem.id) ?? { attempted: false, solved: false };
+  private async overlaySolvedForList(
+    items: CachedProblem[],
+    userId: string | null,
+  ): Promise<PublicProblemModel[]> {
+    const solvedMap = await this.getSolvedMap(userId);
+    return items.map((p) => {
+      const revived = this.reviveCachedProblem(p);
+      const status = solvedMap[revived.id];
+      return {
+        ...revived,
+        solved: status?.solved ?? false,
+        attempted: status?.attempted ?? false,
+      };
+    });
+  }
+
+  // JSON serialization through Redis converts `Date` → ISO string. GraphQL's
+  // DateTime scalar refuses to serialize strings, so we restore Date instances
+  // on every cache read. Only `createdAt` is a Date field on the public payload.
+  private reviveCachedProblem(p: CachedProblem): CachedProblem {
+    if (p.createdAt instanceof Date) return p;
+    return { ...p, createdAt: new Date(p.createdAt as unknown as string) };
+  }
+
+  private toCachedProblem(problem: PublicProblemWithRelations): CachedProblem {
     return {
       id: problem.id,
       title: problem.title,
@@ -184,40 +306,12 @@ export class ParticipantProblemService {
         explanation: tc.explanation,
         order: tc.order,
       })),
-      solved: s.solved,
-      attempted: s.attempted,
       totalSubmissions: problem.stats?.totalSubmissions ?? 0,
       acceptanceRate:
         problem.stats && problem.stats.totalSubmissions > 0
           ? problem.stats.acceptedSubmissions / problem.stats.totalSubmissions
           : 0,
       createdAt: problem.createdAt,
-    };
-  }
-
-  async listTopics(filter: PublicTopicsFilterInput): Promise<TopicsPage> {
-    const where: Prisma.TopicWhereInput = { isActive: true };
-    if (filter.search) {
-      where.OR = [
-        { name: { contains: filter.search, mode: 'insensitive' } },
-        { slug: { contains: filter.search, mode: 'insensitive' } },
-      ];
-    }
-    const { page, limit, skip } = clampPagination(filter);
-
-    const [items, total] = await this.prisma.$transaction([
-      this.prisma.topic.findMany({
-        where,
-        take: limit,
-        skip,
-        orderBy: { name: 'asc' },
-      }),
-      this.prisma.topic.count({ where }),
-    ]);
-
-    return {
-      items,
-      meta: buildMeta(total, page, limit),
     };
   }
 }
