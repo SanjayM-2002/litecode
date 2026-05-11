@@ -1,5 +1,5 @@
 import { Field, ID, ObjectType } from '@nestjs/graphql';
-import { Role } from '@litecode/shared-types';
+import { Role, UserTier } from '@litecode/shared-types';
 import { ParticipantProfileModel } from './participant-profile.model';
 import './enums';
 
@@ -16,6 +16,9 @@ export class UserModel {
 
   @Field(() => Role)
   role: Role;
+
+  @Field(() => UserTier)
+  tier: UserTier;
 
   @Field(() => Date)
   createdAt: Date;

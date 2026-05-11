@@ -10,12 +10,19 @@ import {
   Check,
   CircleCheck,
   CircleX,
+  Flame,
+  HelpCircle,
+  Lightbulb,
   Loader2,
-  Play,
+  Lock,
   RotateCcw,
   Send,
+  Sparkles,
 } from 'lucide-react'
 import {
+  aiHint,
+  aiRoast,
+  fetchMe,
   fetchMySubmissions,
   fetchProblem,
   fetchSubmission,
@@ -24,10 +31,13 @@ import {
 } from '@/lib/api/queries'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
 import { DifficultyBadge } from '@/components/DifficultyBadge'
 import { VerdictBadge } from '@/components/VerdictBadge'
 import { SubmissionDetailDialog } from '@/components/SubmissionDetailDialog'
 import { SolutionsPane } from '@/components/SolutionsPane'
+import { AiResponseDialog } from '@/components/AiResponseDialog'
+import { AiHelpDialog } from '@/components/AiHelpDialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Select,
@@ -58,6 +68,28 @@ export function ProblemDetailPage() {
     queryFn: () => fetchProblem(slug),
     enabled: !!slug,
   })
+
+  // Reuses the cached `me` from Navbar / other pages.
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: fetchMe })
+  const isPremium = me?.tier === 'PREMIUM'
+
+  const [hintOpen, setHintOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const [roastOpen, setRoastOpen] = useState(false)
+
+  const hintMutation = useMutation({ mutationFn: aiHint })
+  const roastMutation = useMutation({ mutationFn: aiRoast })
+
+  // Page-level fetch of this user's submissions for this problem. Drives the
+  // Roast toolbar button (needs the latest submissionId) and is reused by the
+  // Submissions tab pane via the same queryKey — tanstack-query dedupes.
+  const myProblemSubsQuery = useQuery({
+    queryKey: ['mySubmissions', { problemId: problem?.id }],
+    queryFn: () => fetchMySubmissions({ problemId: problem!.id, page: 1, limit: 50 }),
+    enabled: !!problem?.id && !!problem?.solved,
+    staleTime: 10_000,
+  })
+  const latestSubmissionId = myProblemSubsQuery.data?.items[0]?.id ?? null
 
   const availableLangs = useMemo<Language[]>(
     () => problem?.templates.map((t) => t.language) ?? [],
@@ -125,6 +157,24 @@ export function ProblemDetailPage() {
     submitMutation.mutate({ problemId: problem.id, language, code })
   }
 
+  const handleHint = () => {
+    if (!problem) return
+    setHintOpen(true)
+    hintMutation.reset()
+    hintMutation.mutate({
+      problemId: problem.id,
+      language: language ?? undefined,
+      code: code || undefined,
+    })
+  }
+
+  const handleRoast = () => {
+    if (!latestSubmissionId) return
+    setRoastOpen(true)
+    roastMutation.reset()
+    roastMutation.mutate(latestSubmissionId)
+  }
+
   const handleResetCode = () => {
     if (!problem || !language) return
     const tpl = problem.templates.find((t) => t.language === language)
@@ -140,11 +190,45 @@ export function ProblemDetailPage() {
   }
 
   if (isError || !problem) {
+    const message = (error as Error)?.message ?? ''
+    const isPremiumLocked = message.includes('PROBLEM_REQUIRES_PREMIUM')
+
+    if (isPremiumLocked) {
+      return (
+        <div className="flex h-[calc(100vh-3.5rem)] items-center justify-center p-6">
+          <Card className="w-full max-w-md border-[#ffa116]/40 bg-[#ffa116]/5">
+            <CardContent className="space-y-4 p-6 text-center">
+              <Lock className="mx-auto h-8 w-8 text-[#ffa116]" />
+              <div>
+                <h2 className="text-lg font-semibold">Premium problem</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  This problem is part of the Premium catalog. Upgrade to unlock it along with AI
+                  features and unlimited submissions.
+                </p>
+              </div>
+              <div className="flex justify-center gap-2">
+                <Button asChild>
+                  <Link to="/plans">
+                    <Sparkles className="h-4 w-4" />
+                    See plans
+                  </Link>
+                </Button>
+                <Button variant="outline" asChild>
+                  <Link to="/problems">
+                    <ArrowLeft className="h-4 w-4" />
+                    Back
+                  </Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )
+    }
+
     return (
       <div className="flex h-[calc(100vh-3.5rem)] flex-col items-center justify-center gap-3">
-        <p className="text-sm text-destructive">
-          {(error as Error)?.message ?? 'Failed to load problem.'}
-        </p>
+        <p className="text-sm text-destructive">{message || 'Failed to load problem.'}</p>
         <Link to="/problems">
           <Button variant="outline" size="sm">
             <ArrowLeft className="h-4 w-4" />
@@ -263,15 +347,28 @@ export function ProblemDetailPage() {
                       <TabsTrigger value="result">Test Result</TabsTrigger>
                     </TabsList>
                     <div className="flex items-center gap-1.5 pr-2">
-                      {/* <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled
-                        title="Run"
-                      >
-                        <Play className="h-3.5 w-3.5" />
-                        Run
-                      </Button> */}
+                      <AiToolbarButton
+                        icon={<Lightbulb className="h-3.5 w-3.5" />}
+                        label="Hint"
+                        isPremium={isPremium}
+                        onClick={handleHint}
+                        disabled={hintMutation.isPending}
+                      />
+                      <AiToolbarButton
+                        icon={<HelpCircle className="h-3.5 w-3.5" />}
+                        label="Help"
+                        isPremium={isPremium}
+                        onClick={() => setHelpOpen(true)}
+                      />
+                      {problem.solved && (
+                        <AiToolbarButton
+                          icon={<Flame className="h-3.5 w-3.5" />}
+                          label="Roast"
+                          isPremium={isPremium}
+                          onClick={handleRoast}
+                          disabled={roastMutation.isPending || !latestSubmissionId}
+                        />
+                      )}
                       <Button
                         variant="success"
                         size="sm"
@@ -316,7 +413,69 @@ export function ProblemDetailPage() {
         if (!open) setViewedSubmissionId(null)
       }}
     />
+    <AiResponseDialog
+      open={hintOpen}
+      onOpenChange={setHintOpen}
+      title="Hint"
+      description="A small nudge — never the full solution."
+      isLoading={hintMutation.isPending}
+      error={hintMutation.error as Error | null}
+      response={hintMutation.data ?? null}
+    />
+    <AiHelpDialog
+      open={helpOpen}
+      onOpenChange={setHelpOpen}
+      problemId={problem.id}
+      language={language}
+      code={code}
+    />
+    <AiResponseDialog
+      open={roastOpen}
+      onOpenChange={setRoastOpen}
+      title="Code roast"
+      description="Senior-engineer-style takedown of your latest submission."
+      isLoading={roastMutation.isPending}
+      error={roastMutation.error as Error | null}
+      response={roastMutation.data ?? null}
+    />
     </>
+  )
+}
+
+// AI toolbar buttons. PREMIUM-only — FREE users get a lock icon and clicking
+// routes them to /plans instead of firing the mutation.
+function AiToolbarButton({
+  icon,
+  label,
+  isPremium,
+  onClick,
+  disabled,
+}: {
+  icon: React.ReactNode
+  label: string
+  isPremium: boolean
+  onClick: () => void
+  disabled?: boolean
+}) {
+  // Premium-locked variant: Lock + AI sparkle alongside, so users still get
+  // the "AI feature" cue without it firing.
+  if (!isPremium) {
+    return (
+      <Button variant="ghost" size="sm" asChild title="Premium AI feature">
+        <Link to="/plans">
+          <Sparkles className="h-3 w-3 text-[#ffa116]" />
+          <Lock className="h-3.5 w-3.5" />
+          {label}
+        </Link>
+      </Button>
+    )
+  }
+  return (
+    <Button variant="ghost" size="sm" onClick={onClick} disabled={disabled}>
+      <Sparkles className="h-3 w-3 text-[#ffa116]" />
+      {icon}
+      {label}
+    </Button>
   )
 }
 
@@ -496,7 +655,45 @@ function ResultPane({
   submitError: Error | null
 }) {
   if (submitError) {
-    return <p className="text-sm text-destructive">{submitError.message}</p>
+    const msg = submitError.message ?? ''
+    if (msg.includes('FREE_SUBMISSION_LIMIT_REACHED')) {
+      return (
+        <div className="rounded-md border border-[#ffa116]/40 bg-[#ffa116]/5 p-3 text-sm">
+          <p className="font-medium">Free submission limit reached</p>
+          <p className="mt-1 text-muted-foreground">
+            Free accounts can submit up to 5 times per problem. Upgrade to Premium for unlimited
+            submissions.
+          </p>
+          <div className="mt-2">
+            <Button size="sm" asChild>
+              <Link to="/plans">
+                <Sparkles className="h-3.5 w-3.5" />
+                See plans
+              </Link>
+            </Button>
+          </div>
+        </div>
+      )
+    }
+    if (msg.includes('PROBLEM_REQUIRES_PREMIUM')) {
+      return (
+        <div className="rounded-md border border-[#ffa116]/40 bg-[#ffa116]/5 p-3 text-sm">
+          <p className="font-medium">Premium problem</p>
+          <p className="mt-1 text-muted-foreground">
+            This problem is part of the Premium catalog. Upgrade to submit.
+          </p>
+          <div className="mt-2">
+            <Button size="sm" asChild>
+              <Link to="/plans">
+                <Sparkles className="h-3.5 w-3.5" />
+                See plans
+              </Link>
+            </Button>
+          </div>
+        </div>
+      )
+    }
+    return <p className="text-sm text-destructive">{msg}</p>
   }
   if (!submission) {
     return (

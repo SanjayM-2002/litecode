@@ -7,6 +7,7 @@ import { SignupPage } from '@/pages/Signup'
 import { ProblemsPage } from '@/pages/Problems'
 import { ProblemDetailPage } from '@/pages/ProblemDetail'
 import { SubmissionsPage } from '@/pages/Submissions'
+import { PlansPage } from '@/pages/Plans'
 import { ProfilePage } from '@/pages/Profile'
 import { TopicsPage } from '@/pages/Topics'
 import { DiscussPage } from '@/pages/Discuss'
@@ -40,6 +41,7 @@ export default function App() {
               <Route path="/discuss/new" element={<DiscussNewPage />} />
               <Route path="/discuss/:id" element={<DiscussPostPage />} />
               <Route path="/submissions" element={<SubmissionsPage />} />
+              <Route path="/plans" element={<PlansPage />} />
               <Route path="/profile" element={<ProfilePage />} />
             </Route>
           </Route>

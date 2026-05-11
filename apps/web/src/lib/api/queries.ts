@@ -1,5 +1,6 @@
 import { gql } from '../graphql-client'
 import type {
+  AiResponse,
   Difficulty,
   DiscussPost,
   DiscussPostsPage,
@@ -8,15 +9,19 @@ import type {
   Language,
   MeUser,
   ParticipantProfile,
+  Plan,
+  PlanInterval,
   PublicProblem,
   PublicProblemsPage,
   Solution,
   SolutionReply,
   SolutionsPage,
   SolvedStatus,
+  StartSubscriptionResult,
   Submission,
   SubmissionsPage,
   SubmissionStatus,
+  Subscription,
   TopicsPage,
   Verdict,
 } from '../types'
@@ -127,6 +132,7 @@ const ME_QUERY = /* GraphQL */ `
       email
       name
       role
+      tier
       createdAt
       participantProfile {
         id
@@ -711,4 +717,156 @@ const DELETE_DISCUSS_REPLY_MUTATION = /* GraphQL */ `
 export async function deleteDiscussReply(id: string): Promise<boolean> {
   const data = await gql<{ deleteDiscussReply: boolean }>(DELETE_DISCUSS_REPLY_MUTATION, { id })
   return data.deleteDiscussReply
+}
+
+// ---------- Subscription ----------
+
+const PLANS_QUERY = /* GraphQL */ `
+  query Plans {
+    plans {
+      interval
+      amount
+      currency
+      label
+    }
+  }
+`
+
+export async function fetchPlans(): Promise<Plan[]> {
+  const data = await gql<{ plans: Plan[] }>(PLANS_QUERY)
+  return data.plans
+}
+
+const SUBSCRIPTION_FRAGMENT = /* GraphQL */ `
+  fragment SubscriptionFields on Subscription {
+    id
+    planInterval
+    status
+    razorpaySubscriptionId
+    currentPeriodStart
+    currentPeriodEnd
+    cancelledAt
+    createdAt
+    updatedAt
+  }
+`
+
+const MY_SUBSCRIPTION_QUERY = /* GraphQL */ `
+  ${SUBSCRIPTION_FRAGMENT}
+  query MySubscription {
+    mySubscription {
+      ...SubscriptionFields
+    }
+  }
+`
+
+export async function fetchMySubscription(): Promise<Subscription | null> {
+  const data = await gql<{ mySubscription: Subscription | null }>(MY_SUBSCRIPTION_QUERY)
+  return data.mySubscription
+}
+
+const START_SUBSCRIPTION_MUTATION = /* GraphQL */ `
+  mutation StartSubscription($input: StartSubscriptionInput!) {
+    startSubscription(input: $input) {
+      razorpaySubscriptionId
+      razorpayKeyId
+      shortUrl
+    }
+  }
+`
+
+export async function startSubscription(
+  interval: PlanInterval,
+): Promise<StartSubscriptionResult> {
+  const data = await gql<{ startSubscription: StartSubscriptionResult }>(
+    START_SUBSCRIPTION_MUTATION,
+    { input: { interval } },
+  )
+  return data.startSubscription
+}
+
+const CANCEL_SUBSCRIPTION_MUTATION = /* GraphQL */ `
+  ${SUBSCRIPTION_FRAGMENT}
+  mutation CancelSubscription {
+    cancelSubscription {
+      ...SubscriptionFields
+    }
+  }
+`
+
+export async function cancelSubscription(): Promise<Subscription> {
+  const data = await gql<{ cancelSubscription: Subscription }>(CANCEL_SUBSCRIPTION_MUTATION)
+  return data.cancelSubscription
+}
+
+// ---------- AI (premium) ----------
+
+const AI_RESPONSE_FRAGMENT = /* GraphQL */ `
+  fragment AiResponseFields on AiResponse {
+    text
+    provider
+    model
+    inputTokens
+    outputTokens
+  }
+`
+
+const AI_HINT_MUTATION = /* GraphQL */ `
+  ${AI_RESPONSE_FRAGMENT}
+  mutation AiHint($input: AiHintInput!) {
+    aiHint(input: $input) {
+      ...AiResponseFields
+    }
+  }
+`
+
+export interface AiHintInput {
+  problemId: string
+  language?: Language | null
+  code?: string | null
+}
+
+export async function aiHint(input: AiHintInput): Promise<AiResponse> {
+  const cleaned: Record<string, unknown> = { problemId: input.problemId }
+  if (input.language) cleaned.language = input.language
+  if (input.code) cleaned.code = input.code
+  const data = await gql<{ aiHint: AiResponse }>(AI_HINT_MUTATION, { input: cleaned })
+  return data.aiHint
+}
+
+const AI_HELP_MUTATION = /* GraphQL */ `
+  ${AI_RESPONSE_FRAGMENT}
+  mutation AiHelp($input: AiHelpInput!) {
+    aiHelp(input: $input) {
+      ...AiResponseFields
+    }
+  }
+`
+
+export interface AiHelpInput {
+  problemId: string
+  language: Language
+  code: string
+  question: string
+}
+
+export async function aiHelp(input: AiHelpInput): Promise<AiResponse> {
+  const data = await gql<{ aiHelp: AiResponse }>(AI_HELP_MUTATION, { input })
+  return data.aiHelp
+}
+
+const AI_ROAST_MUTATION = /* GraphQL */ `
+  ${AI_RESPONSE_FRAGMENT}
+  mutation AiRoast($input: AiRoastInput!) {
+    aiRoast(input: $input) {
+      ...AiResponseFields
+    }
+  }
+`
+
+export async function aiRoast(submissionId: string): Promise<AiResponse> {
+  const data = await gql<{ aiRoast: AiResponse }>(AI_ROAST_MUTATION, {
+    input: { submissionId },
+  })
+  return data.aiRoast
 }
