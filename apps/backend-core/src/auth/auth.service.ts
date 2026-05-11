@@ -4,10 +4,11 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { PrismaService, Role, User } from '@litecode/db';
+import { PrismaService, User } from '@litecode/db';
 import * as bcrypt from 'bcrypt';
 import {
   IAuthResponse,
+  Role,
   IPublicUser,
   LoginSchema,
   SignupSchema,

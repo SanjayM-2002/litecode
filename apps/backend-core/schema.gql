@@ -2,6 +2,16 @@
 # THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
 # ------------------------------------------------------
 
+input AddDiscussReplyInput {
+  content: String!
+  postId: ID!
+}
+
+input AddSolutionReplyInput {
+  content: String!
+  solutionId: ID!
+}
+
 type AdminMe {
   profile: AdminProfile!
   user: User!
@@ -12,20 +22,25 @@ input AdminProblemsFilterInput {
   createdById: String
   difficulty: Difficulty
   isPublished: Boolean
+  limit: Int = 20
 
   """Inclusive upper bound on rating."""
   maxRating: Int
 
   """Inclusive lower bound on rating."""
   minRating: Int
+  page: Int = 1
 
   """Case-insensitive title contains"""
   search: String
-  skip: Int = 0
-  take: Int = 50
 
   """Filter by topic slug"""
   topicSlug: String
+}
+
+type AdminProblemsPage {
+  items: [Problem!]!
+  meta: PaginationMeta!
 }
 
 type AdminProfile {
@@ -60,6 +75,16 @@ type CodeTemplate {
   updatedAt: DateTime!
 }
 
+input CreateDiscussPostInput {
+  """Markdown body. Images/videos not supported."""
+  content: String!
+
+  """Optional. If set, attaches the post to a published problem."""
+  problemId: ID
+  tag: DiscussTag!
+  title: String!
+}
+
 input CreateProblemInput {
   description: String!
   difficulty: Difficulty!
@@ -83,6 +108,18 @@ input CreateProblemInput {
   topicIds: [String!]!
 }
 
+input CreateSolutionInput {
+  code: String!
+
+  """Markdown body explaining the approach. Images/videos not supported."""
+  content: String!
+  language: Language!
+  problemId: ID!
+
+  """Short headline shown in the solutions list."""
+  title: String!
+}
+
 """
 A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
 """
@@ -92,6 +129,67 @@ enum Difficulty {
   EASY
   HARD
   MEDIUM
+}
+
+type DiscussPost {
+  author: PublicAuthor!
+
+  """Markdown body. Images/videos not supported."""
+  content: String!
+  createdAt: DateTime!
+  id: ID!
+
+  """Optional cross-link to a problem the post is about."""
+  problem: DiscussProblemRef
+
+  """Replies, oldest-first."""
+  replies: [DiscussReply!]!
+  replyCount: Int!
+  tag: DiscussTag!
+  title: String!
+  updatedAt: DateTime!
+}
+
+input DiscussPostsFilterInput {
+  limit: Int = 20
+  page: Int = 1
+
+  """Restrict to posts linked to a specific problem."""
+  problemId: ID
+
+  """Case-insensitive contains match against title or content."""
+  search: String
+
+  """Filter to a single tag."""
+  tag: DiscussTag
+}
+
+type DiscussPostsPage {
+  items: [DiscussPost!]!
+  meta: PaginationMeta!
+}
+
+type DiscussProblemRef {
+  id: ID!
+  slug: String!
+  title: String!
+}
+
+type DiscussReply {
+  author: PublicAuthor!
+  content: String!
+  createdAt: DateTime!
+  id: ID!
+  postId: ID!
+  updatedAt: DateTime!
+}
+
+enum DiscussTag {
+  CAREER
+  COMPENSATION
+  GENERAL
+  INTERVIEW
+  PROBLEM
 }
 
 enum Gender {
@@ -133,11 +231,35 @@ enum Language {
 }
 
 type Mutation {
+  """Reply to a discuss post."""
+  addDiscussReply(input: AddDiscussReplyInput!): DiscussReply!
+
+  """Reply to a solution."""
+  addSolutionReply(input: AddSolutionReplyInput!): SolutionReply!
+
   """Bulk-add inline test cases. order is server-assigned by array index."""
   addTestCases(inputs: [TestCaseInput!]!, problemId: ID!): [TestCase!]!
 
+  """Create a new discuss post."""
+  createDiscussPost(input: CreateDiscussPostInput!): DiscussPost!
+
   """Create a draft problem with topics and (optionally) code templates."""
   createProblem(input: CreateProblemInput!): Problem!
+
+  """Post a new solution to a published problem."""
+  createSolution(input: CreateSolutionInput!): Solution!
+
+  """Delete one of your own posts."""
+  deleteDiscussPost(id: ID!): Boolean!
+
+  """Delete one of your own replies."""
+  deleteDiscussReply(id: ID!): Boolean!
+
+  """Delete one of your own solutions."""
+  deleteSolution(id: ID!): Boolean!
+
+  """Delete one of your own replies."""
+  deleteSolutionReply(id: ID!): Boolean!
 
   """Delete a test case."""
   deleteTestCase(id: ID!): Boolean!
@@ -153,9 +275,20 @@ type Mutation {
   setCodeTemplate(input: TemplateInput!, problemId: ID!): CodeTemplate!
 
   """
+  Submit a solution. Validates problem is published and language is supported. Returns the created Submission immediately (status=PENDING) — poll submission(id) for the verdict.
+  """
+  submitSolution(input: SubmitSolutionInput!): Submission!
+
+  """
   Hide a published problem from participants (isPublished=false). No validation.
   """
   unpublishProblem(id: ID!): Problem!
+
+  """Edit one of your own posts."""
+  updateDiscussPost(id: ID!, input: UpdateDiscussPostInput!): DiscussPost!
+
+  """Edit one of your own replies."""
+  updateDiscussReply(id: ID!, input: UpdateDiscussReplyInput!): DiscussReply!
 
   """
   Patch problem metadata. topicSlugs replaces all topic links if provided.
@@ -165,8 +298,39 @@ type Mutation {
   """Updates the authenticated participant profile (partial)"""
   updateProfile(input: UpdateProfileInput!): ParticipantProfile!
 
+  """Edit one of your own solutions."""
+  updateSolution(id: ID!, input: UpdateSolutionInput!): Solution!
+
+  """Edit one of your own replies."""
+  updateSolutionReply(id: ID!, input: UpdateSolutionReplyInput!): SolutionReply!
+
   """Patch a single test case."""
   updateTestCase(id: ID!, input: UpdateTestCaseInput!): TestCase!
+}
+
+input MySubmissionsFilterInput {
+  language: Language
+  limit: Int = 20
+  page: Int = 1
+
+  """Filter to a specific problem."""
+  problemId: ID
+  status: SubmissionStatus
+  verdict: Verdict
+}
+
+type PaginationMeta {
+  """Items per page."""
+  limit: Int!
+
+  """1-indexed current page."""
+  page: Int!
+
+  """Total number of items matching the filter (across all pages)."""
+  total: Int!
+
+  """ceil(total / limit). Always at least 1."""
+  totalPages: Int!
 }
 
 type ParticipantProfile {
@@ -213,9 +377,116 @@ type Problem {
   updatedAt: DateTime!
 }
 
+input ProblemsFilterInput {
+  difficulty: Difficulty
+  limit: Int = 20
+
+  """Inclusive upper bound on rating."""
+  maxRating: Int
+
+  """Inclusive lower bound on rating."""
+  minRating: Int
+  page: Int = 1
+
+  """Case-insensitive title contains"""
+  search: String
+
+  """Filter by the authenticated user's solved/attempted state."""
+  solvedStatus: SolvedStatus
+
+  """Filter by topic slug"""
+  topicSlug: String
+}
+
+type PublicAuthor {
+  id: ID!
+  name: String
+}
+
+type PublicCodeTemplate {
+  id: ID!
+  language: Language!
+
+  """Class skeleton shown in the user editor."""
+  starterCode: String!
+}
+
+type PublicProblem {
+  """
+  Fraction of submissions that were ACCEPTED (0..1). 0 if there are no submissions yet.
+  """
+  acceptanceRate: Float!
+
+  """
+  True if the authenticated user has at least one submission for this problem (any verdict).
+  """
+  attempted: Boolean!
+  createdAt: DateTime!
+  description: String!
+  difficulty: Difficulty!
+  id: ID!
+  memoryLimit_kb: Int!
+  rating: Int!
+
+  """Sample test cases (isSample=true). Hidden cases are not exposed."""
+  sampleTestCases: [PublicTestCase!]!
+  signature: Signature!
+  slug: String!
+
+  """
+  True if the authenticated user has at least one ACCEPTED submission for this problem. Always false for unauthenticated callers.
+  """
+  solved: Boolean!
+  templates: [PublicCodeTemplate!]!
+  timeLimit_ms: Int!
+  title: String!
+  topics: [Topic!]!
+
+  """
+  Total number of submissions across all users for this problem. 0 if no one has submitted yet.
+  """
+  totalSubmissions: Int!
+}
+
+type PublicProblemsPage {
+  items: [PublicProblem!]!
+  meta: PaginationMeta!
+}
+
+type PublicTestCase {
+  explanation: String
+  id: ID!
+
+  """Positional JSON array matching Problem.signature.args."""
+  inlineInput: JSON!
+
+  """Expected return value as JSON."""
+  inlineOutput: JSON!
+  order: Int!
+}
+
+input PublicTopicsFilterInput {
+  limit: Int = 50
+  page: Int = 1
+
+  """Case-insensitive contains match against name or slug."""
+  search: String
+}
+
 type Query {
   """List problems including drafts (admin view)."""
-  adminProblems(filter: AdminProblemsFilterInput = {}): [Problem!]!
+  adminProblems(filter: AdminProblemsFilterInput = {}): AdminProblemsPage!
+
+  """List topics with optional search and pagination (admin view)."""
+  adminTopics(filter: TopicsFilterInput = {}): TopicsPage!
+
+  """Fetch a single discuss post with its replies."""
+  discussPost(id: ID!): DiscussPost!
+
+  """
+  List discuss posts (newest first). Filter by tag, problem, or search term.
+  """
+  discussPosts(filter: DiscussPostsFilterInput = {}): DiscussPostsPage!
 
   """
   Generate suggested starterCode + driverCode for a given (signature, language).
@@ -230,14 +501,36 @@ type Query {
   """
   myAdminProfile: AdminMe!
 
+  """Authenticated user's own submissions, paginated."""
+  mySubmissions(filter: MySubmissionsFilterInput = {}): SubmissionsPage!
+
   """A simple ping query to verify GraphQL is working."""
   ping: String!
+
+  """
+  Get a single published problem by slug. Returns sample test cases, code templates without driver code, and solved/attempted state.
+  """
+  problem(slug: String!): PublicProblem!
 
   """Full nested problem view for admin (includes drafts and templates)."""
   problemForAdmin(id: ID!): Problem!
 
-  """List topics with optional search and pagination (admin view)."""
-  topics(filter: TopicsFilterInput = {}): [Topic!]!
+  """
+  List published problems with optional filters and pagination. Includes solved/attempted indicators for the authenticated user.
+  """
+  problems(filter: ProblemsFilterInput = {}): PublicProblemsPage!
+
+  """Fetch a single solution with its replies."""
+  solution(id: ID!): Solution!
+
+  """List user-posted solutions for a problem (newest first)."""
+  solutions(filter: SolutionsFilterInput!): SolutionsPage!
+
+  """Fetch a submission by ID. Visible to the owning user and to any admin."""
+  submission(id: ID!): Submission!
+
+  """List active topics, suitable for the public topic-browser page."""
+  topics(filter: PublicTopicsFilterInput = {}): TopicsPage!
 }
 
 enum Role {
@@ -264,6 +557,97 @@ input SignatureInput {
   Return type, e.g., "int[]" or "void"
   """
   returnType: String!
+}
+
+type Solution {
+  author: PublicAuthor!
+  code: String!
+
+  """Markdown explanation. Images/videos not supported."""
+  content: String!
+  createdAt: DateTime!
+  id: ID!
+  language: Language!
+  problemId: ID!
+
+  """Replies, oldest-first. May be empty."""
+  replies: [SolutionReply!]!
+
+  """Total reply count (== replies.length)."""
+  replyCount: Int!
+  title: String!
+  updatedAt: DateTime!
+}
+
+type SolutionReply {
+  author: PublicAuthor!
+  content: String!
+  createdAt: DateTime!
+  id: ID!
+  solutionId: ID!
+  updatedAt: DateTime!
+}
+
+input SolutionsFilterInput {
+  """Optional language filter."""
+  language: Language
+  limit: Int = 20
+  page: Int = 1
+
+  """Restrict to solutions for this problem."""
+  problemId: ID!
+}
+
+type SolutionsPage {
+  items: [Solution!]!
+  meta: PaginationMeta!
+}
+
+enum SolvedStatus {
+  ATTEMPTED
+  SOLVED
+  UNATTEMPTED
+}
+
+type Submission {
+  """User-submitted source (just the class body)."""
+  code: String!
+  completedAt: DateTime
+  createdAt: DateTime!
+  errorMessage: String
+  failedTestCaseId: ID
+  id: ID!
+  language: Language!
+  memory_kb: Int
+  problemId: ID!
+  runtime_ms: Int
+  startedAt: DateTime
+  status: SubmissionStatus!
+
+  """
+  Per-test-case detail. Shape: [{ testCaseId, verdict, runtime_ms, memory_kb, stdout, stderr, isSample }]
+  """
+  testResults: JSON
+  userId: ID!
+  verdict: Verdict
+}
+
+enum SubmissionStatus {
+  GRADED
+  PENDING
+  RUNNING
+}
+
+type SubmissionsPage {
+  items: [Submission!]!
+  meta: PaginationMeta!
+}
+
+input SubmitSolutionInput {
+  """User-submitted source (just the class body, no driver)."""
+  code: String!
+  language: Language!
+  problemId: ID!
 }
 
 input TemplateInput {
@@ -315,11 +699,29 @@ type Topic {
 input TopicsFilterInput {
   """Filter by isActive flag. Pass null to include inactive too."""
   isActive: Boolean = true
+  limit: Int = 20
+  page: Int = 1
 
   """Case-insensitive contains match against name or slug."""
   search: String
-  skip: Int = 0
-  take: Int = 50
+}
+
+type TopicsPage {
+  items: [Topic!]!
+  meta: PaginationMeta!
+}
+
+input UpdateDiscussPostInput {
+  content: String
+
+  """Pass an ID to attach, or pass null to detach the problem link."""
+  problemId: ID
+  tag: DiscussTag
+  title: String
+}
+
+input UpdateDiscussReplyInput {
+  content: String!
 }
 
 input UpdateProblemInput {
@@ -346,6 +748,17 @@ input UpdateProfileInput {
   state: String
 }
 
+input UpdateSolutionInput {
+  code: String
+  content: String
+  language: Language
+  title: String
+}
+
+input UpdateSolutionReplyInput {
+  content: String!
+}
+
 input UpdateTestCaseInput {
   explanation: String
   inlineInput: JSON
@@ -363,4 +776,14 @@ type User {
   name: String
   participantProfile: ParticipantProfile
   role: Role!
+}
+
+enum Verdict {
+  ACCEPTED
+  COMPILATION_ERROR
+  INTERNAL_ERROR
+  MEMORY_LIMIT_EXCEEDED
+  RUNTIME_ERROR
+  TIME_LIMIT_EXCEEDED
+  WRONG_ANSWER
 }

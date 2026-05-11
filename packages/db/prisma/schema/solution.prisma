@@ -1,0 +1,51 @@
+// --- USER-AUTHORED SOLUTIONS ---
+//
+// A user-posted writeup of how they solved a problem. Each solution carries:
+// - a markdown explanation (`content`)
+// - a code snippet in a single language
+// - a free-form title
+//
+// Threaded replies live in SolutionReply (flat — no nested threading for v1).
+
+model Solution {
+  id String @id @default(cuid())
+
+  problemId String
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation("SolutionAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  title    String
+  language Language
+  code     String   @db.Text
+  // Markdown body. Images/videos are intentionally not supported.
+  content  String   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  replies SolutionReply[]
+
+  @@index([problemId, createdAt])
+  @@index([authorId])
+}
+
+model SolutionReply {
+  id String @id @default(cuid())
+
+  solutionId String
+  solution   Solution @relation(fields: [solutionId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation("SolutionReplyAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  // Plain markdown reply text.
+  content String @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([solutionId, createdAt])
+  @@index([authorId])
+}

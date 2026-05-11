@@ -1,10 +1,24 @@
+import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { PrismaModule } from '@litecode/db';
+import { getRedisConnection } from '@litecode/queue';
+import { GraderModule } from './grader/grader.module';
+import { ProblemStatsModule } from './problem-stats/problem-stats.module';
 
 @Module({
-  imports: [],
-  controllers: [AppController],
-  providers: [AppService],
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    PrismaModule,
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        connection: getRedisConnection(config.get<string>('REDIS_URL')),
+      }),
+    }),
+    GraderModule,
+    ProblemStatsModule,
+  ],
 })
 export class AppModule {}

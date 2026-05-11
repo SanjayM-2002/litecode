@@ -6,7 +6,8 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
-import { AdminProfile, Permission, PrismaService, Role } from '@litecode/db';
+import { AdminProfile, Permission, PrismaService } from '@litecode/db';
+import { Role } from '@litecode/shared-types';
 import { Request } from 'express';
 import { JwtPayload } from '../../auth/auth.service';
 import { REQUIRED_PERMISSIONS_KEY } from '../decorators/require-permissions.decorator';

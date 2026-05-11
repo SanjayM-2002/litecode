@@ -1,4 +1,4 @@
-import { Language } from '@litecode/db';
+import { Language } from '@litecode/shared-types';
 import { generateCppTemplate } from './cpp';
 import { generateJavaScriptTemplate } from './javascript';
 import { generateTypeScriptTemplate } from './typescript';

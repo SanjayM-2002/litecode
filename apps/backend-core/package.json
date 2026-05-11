@@ -22,6 +22,9 @@
   "dependencies": {
     "@apollo/server": "^5.5.0",
     "@as-integrations/express5": "^1.1.2",
+    "@bull-board/api": "^7.0.0",
+    "@bull-board/express": "^7.0.0",
+    "@bull-board/nestjs": "^7.0.0",
     "@litecode/db": "workspace:^",
     "@litecode/queue": "workspace:^",
     "@litecode/shared-types": "workspace:^",

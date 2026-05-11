@@ -1,5 +1,5 @@
 import { Field, ObjectType } from '@nestjs/graphql';
-import { Language } from '@litecode/db';
+import { Language } from '@litecode/shared-types';
 import './enums';
 
 @ObjectType('GeneratedTemplate')
