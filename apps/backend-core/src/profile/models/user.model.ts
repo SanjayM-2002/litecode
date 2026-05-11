@@ -1,5 +1,5 @@
 import { Field, ID, ObjectType } from '@nestjs/graphql';
-import { Role } from '@litecode/db';
+import { Role } from '@litecode/shared-types';
 import { ParticipantProfileModel } from './participant-profile.model';
 import './enums';
 

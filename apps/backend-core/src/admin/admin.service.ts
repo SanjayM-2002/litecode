@@ -6,11 +6,11 @@ import {
 } from '@nestjs/common';
 import {
   AdminProfile,
-  Language,
   Prisma,
   PrismaService,
   User,
 } from '@litecode/db';
+import { Language } from '@litecode/shared-types';
 import { z } from 'zod';
 import { AdminMeModel } from './models/admin-me.model';
 import { GeneratedTemplateModel } from './models/generated-template.model';
@@ -24,7 +24,10 @@ import { TemplateInput } from './dto/template.input';
 import { TestCaseInput, UpdateTestCaseInput } from './dto/test-case.input';
 import { AdminProblemsFilterInput } from './dto/admin-problems-filter.input';
 import { TopicsFilterInput } from './dto/topics-filter.input';
-import { TopicModel } from './models/topic.model';
+import { TopicsPage } from './models/topics-page.model';
+import { AdminProblemsPage } from './models/problems-page.model';
+import { buildMeta } from '../common/models/pagination-meta.model';
+import { clampPagination } from '../common/dto/pagination.input';
 import { generateTemplate } from './template-generator';
 
 const PROBLEM_INCLUDE = {
@@ -33,16 +36,12 @@ const PROBLEM_INCLUDE = {
   testCases: { orderBy: { order: 'asc' as const } },
 } satisfies Prisma.ProblemInclude;
 
-const signatureShapeSchema = z.object({
-  methodName: z.string().min(1),
-  args: z.array(
-    z.object({
-      name: z.string().min(1),
-      type: z.string().min(1),
-    }),
-  ),
-  returnType: z.string().min(1),
-});
+const argsShapeSchema = z.array(
+  z.object({
+    name: z.string().min(1),
+    type: z.string().min(1),
+  }),
+);
 
 type ProblemWithRelations = Prisma.ProblemGetPayload<{
   include: typeof PROBLEM_INCLUDE;
@@ -92,7 +91,7 @@ export class AdminService {
             description: input.description,
             difficulty: input.difficulty,
             rating: input.rating ?? undefined, // let DB default (1500) apply if omitted
-            signature: this.signatureToJson(input.signature),
+            ...this.signatureToFields(input.signature),
             isPublished: false,
             createdById: adminId,
             topics: {
@@ -145,7 +144,12 @@ export class AdminService {
       if (input.description !== undefined) data.description = input.description;
       if (input.difficulty !== undefined) data.difficulty = input.difficulty;
       if (input.rating !== undefined) data.rating = input.rating;
-      if (input.signature !== undefined) data.signature = this.signatureToJson(input.signature);
+      if (input.signature !== undefined) {
+        const fields = this.signatureToFields(input.signature);
+        data.methodName = fields.methodName;
+        data.returnType = fields.returnType;
+        data.args = fields.args;
+      }
 
       const updated = await tx.problem
         .update({ where: { id }, data, include: PROBLEM_INCLUDE })
@@ -182,7 +186,7 @@ export class AdminService {
     });
   }
 
-  async getAdminProblems(filter: AdminProblemsFilterInput): Promise<ProblemModel[]> {
+  async getAdminProblems(filter: AdminProblemsFilterInput): Promise<AdminProblemsPage> {
     const where: Prisma.ProblemWhereInput = {};
     if (filter.difficulty) where.difficulty = filter.difficulty;
     if (filter.isPublished !== undefined) where.isPublished = filter.isPublished;
@@ -198,15 +202,23 @@ export class AdminService {
       };
     }
 
-    const problems = await this.prisma.problem.findMany({
-      where,
-      take: filter.take ?? 50,
-      skip: filter.skip ?? 0,
-      orderBy: { createdAt: 'desc' },
-      include: PROBLEM_INCLUDE,
-    });
+    const { page, limit, skip } = clampPagination(filter);
 
-    return problems.map((p) => this.toProblemModel(p));
+    const [problems, total] = await this.prisma.$transaction([
+      this.prisma.problem.findMany({
+        where,
+        take: limit,
+        skip,
+        orderBy: { createdAt: 'desc' },
+        include: PROBLEM_INCLUDE,
+      }),
+      this.prisma.problem.count({ where }),
+    ]);
+
+    return {
+      items: problems.map((p) => this.toProblemModel(p)),
+      meta: buildMeta(total, page, limit),
+    };
   }
 
   async getProblemForAdmin(id: string): Promise<ProblemModel> {
@@ -218,7 +230,7 @@ export class AdminService {
     return this.toProblemModel(problem);
   }
 
-  async getTopics(filter: TopicsFilterInput): Promise<TopicModel[]> {
+  async getTopics(filter: TopicsFilterInput): Promise<TopicsPage> {
     const where: Prisma.TopicWhereInput = {};
     if (filter.isActive !== undefined && filter.isActive !== null) {
       where.isActive = filter.isActive;
@@ -230,12 +242,22 @@ export class AdminService {
       ];
     }
 
-    return this.prisma.topic.findMany({
-      where,
-      take: filter.take ?? 50,
-      skip: filter.skip ?? 0,
-      orderBy: { name: 'asc' },
-    });
+    const { page, limit, skip } = clampPagination(filter);
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.topic.findMany({
+        where,
+        take: limit,
+        skip,
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.topic.count({ where }),
+    ]);
+
+    return {
+      items,
+      meta: buildMeta(total, page, limit),
+    };
   }
 
   private async resolveTopics(
@@ -255,11 +277,15 @@ export class AdminService {
     return found;
   }
 
-  private signatureToJson(sig: SignatureInput): Prisma.InputJsonValue {
+  private signatureToFields(sig: SignatureInput): {
+    methodName: string;
+    returnType: string;
+    args: Prisma.InputJsonValue;
+  } {
     return {
       methodName: sig.methodName,
-      args: sig.args.map((a) => ({ name: a.name, type: a.type })),
       returnType: sig.returnType,
+      args: sig.args.map((a) => ({ name: a.name, type: a.type })),
     };
   }
 
@@ -272,7 +298,11 @@ export class AdminService {
       difficulty: problem.difficulty,
       rating: problem.rating,
       isPublished: problem.isPublished,
-      signature: problem.signature as unknown as ProblemModel['signature'],
+      signature: {
+        methodName: problem.methodName,
+        returnType: problem.returnType,
+        args: problem.args as unknown as ProblemModel['signature']['args'],
+      },
       topics: problem.topics.map((pt) => pt.topic),
       templates: problem.templates,
       testCases: problem.testCases as unknown as TestCaseModel[],
@@ -412,12 +442,19 @@ export class AdminService {
       errors.push('Problem must have at least one hidden test case (isSample: false)');
     }
 
-    const sigParse = signatureShapeSchema.safeParse(problem.signature);
-    if (!sigParse.success) {
-      const flat = sigParse.error.flatten();
-      const formFieldIssues = Object.entries(flat.fieldErrors)
-        .flatMap(([k, v]) => (v ?? []).map((m) => `signature.${k}: ${m}`));
-      const formIssues = flat.formErrors.map((m) => `signature: ${m}`);
+    if (!problem.methodName?.length) {
+      errors.push('signature.methodName must be a non-empty string');
+    }
+    if (!problem.returnType?.length) {
+      errors.push('signature.returnType must be a non-empty string');
+    }
+    const argsParse = argsShapeSchema.safeParse(problem.args);
+    if (!argsParse.success) {
+      const flat = argsParse.error.flatten();
+      const formFieldIssues = Object.entries(flat.fieldErrors).flatMap(([k, v]) =>
+        (v ?? []).map((m) => `signature.args[${k}]: ${m}`),
+      );
+      const formIssues = flat.formErrors.map((m) => `signature.args: ${m}`);
       errors.push(...formIssues, ...formFieldIssues);
     }
 

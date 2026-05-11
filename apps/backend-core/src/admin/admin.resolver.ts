@@ -19,7 +19,8 @@ import { CodeTemplateModel } from './models/code-template.model';
 import { GeneratedTemplateModel } from './models/generated-template.model';
 import { ProblemModel } from './models/problem.model';
 import { TestCaseModel } from './models/test-case.model';
-import { TopicModel } from './models/topic.model';
+import { TopicsPage } from './models/topics-page.model';
+import { AdminProblemsPage } from './models/problems-page.model';
 
 @Resolver()
 @UseGuards(GqlJwtAuthGuard, AdminPermissionsGuard)
@@ -45,24 +46,24 @@ export class AdminResolver {
     return this.adminService.generateBoilerplate(input.language, input.signature);
   }
 
-  @Query(() => [TopicModel], {
+  @Query(() => TopicsPage, {
     description: 'List topics with optional search and pagination (admin view).',
   })
-  async topics(
+  async adminTopics(
     @Args('filter', { nullable: true, defaultValue: {} }) filter: TopicsFilterInput,
-  ): Promise<TopicModel[]> {
+  ): Promise<TopicsPage> {
     return this.adminService.getTopics(filter);
   }
 
   // --- Problem queries ---
 
-  @Query(() => [ProblemModel], {
+  @Query(() => AdminProblemsPage, {
     description: 'List problems including drafts (admin view).',
   })
   @RequirePermissions(Permission.EDIT_PROBLEM)
   async adminProblems(
     @Args('filter', { nullable: true, defaultValue: {} }) filter: AdminProblemsFilterInput,
-  ): Promise<ProblemModel[]> {
+  ): Promise<AdminProblemsPage> {
     return this.adminService.getAdminProblems(filter);
   }
 

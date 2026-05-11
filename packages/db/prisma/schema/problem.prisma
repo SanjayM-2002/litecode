@@ -8,16 +8,26 @@ model Problem {
   difficulty  Difficulty @default(EASY)
   rating      Int        @default(1500) // numeric difficulty, typical range 800–3500
 
+  // Per-test-case execution limits. Apply uniformly to every test case.
+  timeLimit_ms   Int @default(2000)
+  memoryLimit_kb Int @default(262144) // 256 MB
+
   isPublished Boolean    @default(false)
 
-  // Code generation metadata.
-  // shape: { methodName: string, args: [{ name, type }], returnType: string }
-  signature   Json
+  // Code generation metadata. Split into scalar fields for queryability + type safety.
+  methodName String
+  returnType String
+  // args shape: [{ name: string, type: string }]
+  args       Json
 
   // Relations
   testCases   TestCase[]
   templates   CodeTemplate[]
   topics      ProblemTopic[]
+  submissions Submission[]
+  solutions   Solution[]
+  discussPosts DiscussPost[]
+  stats       ProblemStats?
 
   createdById String
   createdBy   User       @relation("AuthoredProblems", fields: [createdById], references: [id])
@@ -96,4 +106,31 @@ enum Language {
   TYPESCRIPT
   GO
   RUST
+}
+
+// --- PROBLEM STATS ---
+//
+// Aggregate counters maintained by the `update-problem-stats` worker.
+// Kept in a 1:1 sidecar table (not on Problem) so high-frequency counter
+// writes don't contend with edits to the core Problem row.
+//
+// Idempotency: every applied submission is recorded in ProblemStatsLedger
+// (PK = submissionId). The consumer inserts the ledger row first; a
+// unique-violation means the job has already been applied and is skipped.
+model ProblemStats {
+  problemId String  @id
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  totalSubmissions    Int @default(0)
+  acceptedSubmissions Int @default(0)
+
+  updatedAt DateTime @updatedAt
+}
+
+model ProblemStatsLedger {
+  submissionId String   @id
+  problemId    String
+  appliedAt    DateTime @default(now())
+
+  @@index([problemId])
 }

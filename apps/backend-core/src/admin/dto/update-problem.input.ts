@@ -1,5 +1,5 @@
 import { Field, InputType, Int } from '@nestjs/graphql';
-import { Difficulty } from '@litecode/db';
+import { Difficulty } from '@litecode/shared-types';
 import { SignatureInput } from './signature.input';
 import '../models/enums';
 

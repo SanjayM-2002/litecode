@@ -1,0 +1,59 @@
+// --- DISCUSS FORUM ---
+//
+// User-posted threads, similar to LeetCode's Discuss section. Each post:
+// - has exactly one tag from `DiscussTag`
+// - carries a markdown body (`content`)
+// - may optionally reference a published Problem (`problemId`)
+//
+// Replies are flat — no nested threading for v1.
+
+enum DiscussTag {
+  GENERAL
+  PROBLEM
+  CAREER
+  INTERVIEW
+  COMPENSATION
+}
+
+model DiscussPost {
+  id String @id @default(cuid())
+
+  authorId String
+  author   User   @relation("DiscussPostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  // Optional cross-link to a Problem. Posts can exist without it.
+  problemId String?
+  problem   Problem? @relation(fields: [problemId], references: [id], onDelete: SetNull)
+
+  title   String
+  // Markdown body. Images/videos are intentionally not supported.
+  content String     @db.Text
+  tag     DiscussTag
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  replies DiscussReply[]
+
+  @@index([tag, createdAt])
+  @@index([problemId, createdAt])
+  @@index([authorId])
+}
+
+model DiscussReply {
+  id String @id @default(cuid())
+
+  postId String
+  post   DiscussPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation("DiscussReplyAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  content String @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([postId, createdAt])
+  @@index([authorId])
+}
