@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { CacheService, cacheKeys } from '@litecode/cache';
 import {
   AdminProfile,
   Prisma,
@@ -49,7 +50,33 @@ type ProblemWithRelations = Prisma.ProblemGetPayload<{
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache: CacheService,
+  ) {}
+
+  // ---- Cache invalidation helpers ----
+  // Public problem list keys are space-bounded but cheap to bust wholesale on
+  // any problem write — refill happens lazily on next read.
+  private async invalidateProblemList(): Promise<void> {
+    await this.cache.delPattern(cacheKeys.problemsListPattern());
+  }
+
+  private async invalidateProblemDetail(slug: string): Promise<void> {
+    await this.cache.del(cacheKeys.problemBySlug(slug));
+  }
+
+  private async invalidateTemplate(problemId: string, language: Language): Promise<void> {
+    await this.cache.del(cacheKeys.template(problemId, language));
+  }
+
+  private async slugForTestCaseId(testCaseId: string): Promise<string | null> {
+    const tc = await this.prisma.testCase.findUnique({
+      where: { id: testCaseId },
+      select: { problem: { select: { slug: true } } },
+    });
+    return tc?.problem.slug ?? null;
+  }
 
   async getMyAdminProfile(userId: string): Promise<AdminMeModel> {
     const user = await this.prisma.user.findUnique({
@@ -80,7 +107,7 @@ export class AdminService {
   }
 
   async createProblem(adminId: string, input: CreateProblemInput): Promise<ProblemModel> {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const topics = await this.resolveTopics(tx, input.topicIds);
 
       const problem = await tx.problem
@@ -121,10 +148,19 @@ export class AdminService {
 
       return this.toProblemModel(problem);
     });
+
+    // New problem is unpublished, so the participant list cache wouldn't include
+    // it anyway — but template entries for the new (problemId, language) pairs
+    // might exist as negative cache hits if a user attempted a phantom submit.
+    // Bust them defensively.
+    for (const t of input.templates ?? []) {
+      await this.invalidateTemplate(result.id, t.language);
+    }
+    return result;
   }
 
   async updateProblem(id: string, input: UpdateProblemInput): Promise<ProblemModel> {
-    return this.prisma.$transaction(async (tx) => {
+    const { previousSlug, result } = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.problem.findUnique({ where: { id } });
       if (!existing) throw new NotFoundException('Problem not found');
 
@@ -163,15 +199,27 @@ export class AdminService {
           throw err;
         });
 
-      return this.toProblemModel(updated);
+      return { previousSlug: existing.slug, result: this.toProblemModel(updated) };
     });
+
+    await this.invalidateProblemList();
+    await this.invalidateProblemDetail(result.slug);
+    if (previousSlug !== result.slug) {
+      // Slug rename: the old detail key would serve stale content under its old URL
+      // until TTL — and the new URL would 404 on cache hit. Bust both.
+      await this.invalidateProblemDetail(previousSlug);
+    }
+    return result;
   }
 
   async setCodeTemplate(problemId: string, input: TemplateInput): Promise<CodeTemplateModel> {
-    const problem = await this.prisma.problem.findUnique({ where: { id: problemId } });
+    const problem = await this.prisma.problem.findUnique({
+      where: { id: problemId },
+      select: { slug: true },
+    });
     if (!problem) throw new NotFoundException('Problem not found');
 
-    return this.prisma.codeTemplate.upsert({
+    const result = await this.prisma.codeTemplate.upsert({
       where: { problemId_language: { problemId, language: input.language } },
       create: {
         problemId,
@@ -184,6 +232,10 @@ export class AdminService {
         driverCode: input.driverCode,
       },
     });
+
+    await this.invalidateProblemDetail(problem.slug);
+    await this.invalidateTemplate(problemId, input.language);
+    return result;
   }
 
   async getAdminProblems(filter: AdminProblemsFilterInput): Promise<AdminProblemsPage> {
@@ -321,7 +373,7 @@ export class AdminService {
 
     const problem = await this.prisma.problem.findUnique({
       where: { id: problemId },
-      select: { id: true },
+      select: { id: true, slug: true },
     });
     if (!problem) throw new NotFoundException('Problem not found');
 
@@ -342,6 +394,9 @@ export class AdminService {
       })),
     });
 
+    // Public payload only exposes sample test cases, but any case can be
+    // flipped to/from `isSample` later — invalidate unconditionally.
+    await this.invalidateProblemDetail(problem.slug);
     return rows as unknown as TestCaseModel[];
   }
 
@@ -358,7 +413,11 @@ export class AdminService {
     if (input.order !== undefined) data.order = input.order;
 
     const updated = await this.prisma.testCase
-      .update({ where: { id }, data })
+      .update({
+        where: { id },
+        data,
+        include: { problem: { select: { slug: true } } },
+      })
       .catch((err) => {
         if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
           throw new NotFoundException('Test case not found');
@@ -366,16 +425,21 @@ export class AdminService {
         throw err;
       });
 
-    return updated as unknown as TestCaseModel;
+    await this.invalidateProblemDetail(updated.problem.slug);
+    const { problem: _problem, ...rest } = updated;
+    return rest as unknown as TestCaseModel;
   }
 
   async deleteTestCase(id: string): Promise<boolean> {
+    // Capture slug before the row disappears so we can bust the detail cache.
+    const slug = await this.slugForTestCaseId(id);
     await this.prisma.testCase.delete({ where: { id } }).catch((err) => {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
         throw new NotFoundException('Test case not found');
       }
       throw err;
     });
+    if (slug) await this.invalidateProblemDetail(slug);
     return true;
   }
 
@@ -402,7 +466,10 @@ export class AdminService {
       include: PROBLEM_INCLUDE,
     });
 
-    return this.toProblemModel(updated);
+    const model = this.toProblemModel(updated);
+    await this.invalidateProblemList();
+    await this.invalidateProblemDetail(model.slug);
+    return model;
   }
 
   async unpublishProblem(id: string): Promise<ProblemModel> {
@@ -419,7 +486,10 @@ export class AdminService {
         throw err;
       });
 
-    return this.toProblemModel(updated);
+    const model = this.toProblemModel(updated);
+    await this.invalidateProblemList();
+    await this.invalidateProblemDetail(model.slug);
+    return model;
   }
 
   private validateForPublish(problem: ProblemWithRelations): string[] {

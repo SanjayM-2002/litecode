@@ -35,6 +35,9 @@ importers:
       '@bull-board/nestjs':
         specifier: ^7.0.0
         version: 7.0.0(@bull-board/api@7.0.0(@bull-board/ui@7.0.0))(@nestjs/bull-shared@11.0.4(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@11.1.19)(reflect-metadata@0.2.2)(rxjs@7.8.2)))(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@11.1.19)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@litecode/cache':
+        specifier: workspace:^
+        version: link:../../packages/cache
       '@litecode/db':
         specifier: workspace:^
         version: link:../../packages/db
@@ -180,6 +183,9 @@ importers:
 
   apps/backend-secondary:
     dependencies:
+      '@litecode/cache':
+        specifier: workspace:^
+        version: link:../../packages/cache
       '@litecode/db':
         specifier: workspace:^
         version: link:../../packages/db
@@ -428,6 +434,25 @@ importers:
       vite:
         specifier: ^8.0.10
         version: 8.0.10(@types/node@24.12.2)(jiti@2.6.1)(terser@5.46.2)
+
+  packages/cache:
+    dependencies:
+      '@litecode/queue':
+        specifier: workspace:^
+        version: link:../queue
+      '@nestjs/common':
+        specifier: ^11.0.1
+        version: 11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/config':
+        specifier: ^4.0.4
+        version: 4.0.4(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(rxjs@7.8.2)
+      ioredis:
+        specifier: ^5.0.0
+        version: 5.10.1
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.2
 
   packages/db:
     dependencies:

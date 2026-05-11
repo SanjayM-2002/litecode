@@ -20,6 +20,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@litecode/cache": "workspace:^",
     "@litecode/db": "workspace:^",
     "@litecode/judge": "workspace:^",
     "@litecode/queue": "workspace:^",

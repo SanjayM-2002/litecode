@@ -25,6 +25,7 @@
     "@bull-board/api": "^7.0.0",
     "@bull-board/express": "^7.0.0",
     "@bull-board/nestjs": "^7.0.0",
+    "@litecode/cache": "workspace:^",
     "@litecode/db": "workspace:^",
     "@litecode/queue": "workspace:^",
     "@litecode/shared-types": "workspace:^",
