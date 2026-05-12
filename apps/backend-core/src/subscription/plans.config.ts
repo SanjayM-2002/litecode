@@ -1,17 +1,15 @@
 import { PlanInterval } from '@litecode/db';
 
-// Razorpay is the source of truth for price. To change the price, create a NEW
-// plan in the Razorpay dashboard (you can't edit an existing plan's amount) and
-// update `razorpayPlanId` here. `amount` is for display in the /plans response
-// only and must match what was set on Razorpay's side.
-//
-// `total_count` is how many billing cycles Razorpay will charge before the
-// subscription auto-completes — Razorpay has no "infinite" option, so pick a
-// large enough number that real users won't hit it.
+function requireEnv(key: string): string {
+  const value = process.env[key];
+  if (!value) throw new Error(`Missing required env var: ${key}`);
+  return value;
+}
+
 export const PLANS: Record<
   PlanInterval,
   {
-    razorpayPlanId: string;
+    readonly razorpayPlanId: string;
     amount: number; // paise
     currency: string;
     totalCount: number;
@@ -19,14 +17,18 @@ export const PLANS: Record<
   }
 > = {
   MONTHLY: {
-    razorpayPlanId: 'plan_REPLACE_WITH_MONTHLY_ID',
+    get razorpayPlanId() {
+      return requireEnv('RAZORPAY_PLAN_ID_MONTHLY');
+    },
     amount: 30000, // ₹300
     currency: 'INR',
     totalCount: 60, // 5 years
     label: '₹30 / month',
   },
   YEARLY: {
-    razorpayPlanId: 'plan_REPLACE_WITH_YEARLY_ID',
+    get razorpayPlanId() {
+      return requireEnv('RAZORPAY_PLAN_ID_YEARLY');
+    },
     amount: 300000, // ₹3000
     currency: 'INR',
     totalCount: 10, // 10 years
