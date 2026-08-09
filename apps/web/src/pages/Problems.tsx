@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Check, ChevronLeft, ChevronRight, CircleDot, Search, X } from 'lucide-react'
 import { fetchProblems, type ProblemsFilter } from '@/lib/api/queries'
@@ -31,6 +31,7 @@ import type { Difficulty, SolvedStatus } from '@/lib/types'
 
 export function ProblemsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const topicSlug = searchParams.get('topic')
 
   const search = useProblemsFiltersStore((s) => s.search)
@@ -171,7 +172,11 @@ export function ProblemsPage() {
 
             {!isLoading && !isError &&
               data?.items.map((p) => (
-                <TableRow key={p.id} className="cursor-pointer">
+                <TableRow
+                  key={p.id}
+                  className="cursor-pointer"
+                  onClick={() => navigate(`/problems/${p.slug}`)}
+                >
                   <TableCell>
                     {p.solved ? (
                       <Check className="h-4 w-4 text-[#00b8a3]" />

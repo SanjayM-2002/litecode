@@ -1,19 +1,20 @@
 # LiteCode
 
-A LeetCode-style coding judge platform built as a Turborepo monorepo. Users solve algorithmic problems in a browser-based Monaco editor, submissions are graded asynchronously by background workers calling pluggable code-execution backends, and premium users get AI-powered hints, conceptual help, and code roasts.
+A LeetCode-style coding judge platform built as a Turborepo monorepo. Users solve algorithmic problems in a browser-based Monaco editor, submissions are graded asynchronously by an in-house sandboxed execution engine, and premium users get AI-powered hints, conceptual help, and code roasts.
 
-The project is split into two NestJS services — a request-path API (`backend-core`) and a worker (`backend-secondary`) — plus a Vite + React 19 web app, all sharing typed packages for DB access, caching, queue contracts, and judge clients.
+The project is a NestJS API (`backend-core`), a **Go judge worker** (`apps/judge`) that executes untrusted code inside [isolate](https://github.com/ioi/isolate), and a Vite + React 19 web app — connected by RabbitMQ for job handoff and Postgres for state, sharing typed packages for DB access, caching, and queue contracts.
 
 ## Features
 
 - **Problem catalog & editor** — browse problems by topic / difficulty, solve in Monaco, multi-language support driven by per-problem `CodeTemplate`s.
-- **Async grading pipeline** — `submitSolution` enqueues a job; a worker assembles the full source from a driver template, executes test cases on a pluggable judge backend, compares output, and writes a verdict. Side-effect jobs fan out for problem stats and ratings.
-- **Pluggable judge backends** — Self-hosted Piston, RapidAPI Judge0, JDoodle. Selected via `JUDGE_PROVIDER`.
+- **In-house judge engine** — a Go worker running submissions under isolate with cgroup v2 limits. No third-party execution service, no per-request quota, and exact CPU / peak-memory / kill-reason readings from isolate's meta file.
+- **Chunked execution** — test cases are batched into a small number of sandbox invocations rather than one per case, so a 25-case problem costs a handful of process starts instead of 25. Chunk sizing follows a cost model; cheap and expensive cases are never mixed.
+- **Async grading pipeline** — `submitSolution` publishes to RabbitMQ; the judge claims the row, grades it, and writes the verdict plus aggregate counters in a single transaction.
 - **AI assistance (premium)** — three modes: `hint` (one nudge, ≤80 words, no code), `help` (conceptual answer to a question, ≤200 words), `roast` (sharp review of *your own* submission). Pluggable providers: OpenAI, Gemini, Grok, OpenRouter, or `mock` for keyless local dev.
 - **Subscriptions via Razorpay** — Razorpay-hosted checkout, webhook-driven tier sync, idempotent webhook log, and a nightly cron backstop that demotes users whose `currentPeriodEnd` has passed if a webhook was missed.
 - **Discuss & Solutions** — per-problem editorial Solutions with replies, plus a general Discuss section organised by Topics.
 - **Admin panel** — problem CRUD, template management, admin invitation flow with permission scoping.
-- **Bull-Board dashboard** — live queue inspection at `/queues`, basic-auth gated.
+- **Health endpoints** — `GET /health` for liveness, `GET /health/deep` for per-dependency status. Only Postgres is critical, so a Redis or broker outage reports `degraded` rather than pulling the instance out of a load balancer.
 - **Cache layer** — shared Redis cache-aside helper used for hot reads (problem list slices, problem detail, code-template existence, user tier, user solved-map, topics list).
 
 ## Architecture
@@ -32,60 +33,64 @@ The project is split into two NestJS services — a request-path API (`backend-c
    │  ─ Auth (JWT), Problems, Submissions, Solutions, Discuss,           │
    │    Profile, Admin, Subscription, AI                                 │
    │  ─ POST /webhooks/razorpay  (idempotent, tx-bound tier sync)        │
-   │  ─ /queues  (Bull-Board UI)                                         │
+   │  ─ GET /health, GET /health/deep                                    │
    └───────┬──────────────────────────┬───────────────────┬──────────────┘
-           │ enqueue                  │ read/write        │ get/set
+           │ publish                  │ read/write        │ get/set
            ▼                          ▼                   ▼
    ┌──────────────────┐      ┌──────────────────┐   ┌──────────────────┐
-   │  Redis (BullMQ)  │      │   Postgres       │   │   Redis (cache)  │
-   │  queues:         │      │   (Prisma)       │   │   cache-aside    │
-   │   • grade-       │      │   schema split   │   │   SCAN-based     │
-   │     submission   │      │   across files   │   │   pattern delete │
-   │   • update-      │      │                  │   │                  │
-   │     problem-     │      └────────▲─────────┘   └────────▲─────────┘
-   │     stats        │               │                      │
-   │   • update-      │               │ read/write           │
-   │     rating       │               │                      │
-   └────────┬─────────┘               │                      │
+   │   RabbitMQ       │      │   Postgres       │   │   Redis (cache)  │
+   │  exchange:       │      │   (Prisma)       │   │   cache-aside    │
+   │   litecode       │      │   schema split   │   │   SCAN-based     │
+   │   (topic)        │      │   across files   │   │   pattern delete │
+   │  routing keys:   │      │                  │   │   + judge        │
+   │   • judge.jobs.  │      └────────▲─────────┘   │     heartbeats   │
+   │       default    │               │             └────────▲─────────┘
+   │   • judge.jobs.  │               │                      │
+   │       high       │               │ claim, verdict,      │ invalidate
+   └────────┬─────────┘               │ stats (one tx)       │ on verdict
             │ consume                 │                      │
             ▼                         │                      │
    ┌─────────────────────────────────────────────────────────────────────┐
-   │  apps/backend-secondary   (NestJS 11, worker)                       │
-   │  ─ GraderProcessor: assemble source → run test cases → write        │
-   │    verdict → fan-out stats/rating jobs                              │
-   │  ─ ProblemStatsProcessor: idempotent counter increments             │
-   │    (ProblemStatsLedger guards at-least-once)                        │
+   │  apps/judge   (Go 1.24, Docker)                                     │
+   │  ─ claim row → assemble source → compile once → chunk cases →       │
+   │    execute → compare → write verdict + ProblemStats in ONE tx       │
+   │  ─ publishes a heartbeat key to Redis, read by /health/deep         │
    └───────────────────────────┬─────────────────────────────────────────┘
-                               │ HTTP
+                               │ exec
                                ▼
                   ┌────────────────────────────┐
-                  │   Judge backend            │
-                  │      Piston (self-hosted)  │
-                  │     / JDoodle / Judge0     │
+                  │  isolate (in-process)      │
+                  │  namespaces + cgroup v2    │
+                  │  g++ (PCH) · node 22       │
                   └────────────────────────────┘
 
    External:  Razorpay  ──── webhook ───►  backend-core  /webhooks/razorpay
               AI provider ◄── HTTPS ──── backend-core (Premium-only, on demand)
 ```
 
+The message body is a **claim check** — ids only. Test data never travels through the broker, because a broker holds messages in memory and a large test case would be an OOM waiting to happen. The judge reads everything it needs from Postgres.
+
+The verdict is **written by the judge**, not mailed back. That's what keeps "was this graded?" answerable from a row that can't be consumed and destroyed, and it's why a lost message costs a re-grade rather than a lost result.
+
 ## Monorepo structure
 
 ```
 apps/
-  backend-core/        NestJS API: GraphQL + REST webhooks + Bull-Board
-  backend-secondary/   NestJS worker: grader + problem-stats processors
+  backend-core/        NestJS API: GraphQL + REST webhooks + health
+  judge/               Go worker: sandboxed execution engine (isolate)
   web/                 React 19 + Vite + Tailwind + Monaco
 
 packages/
   db/                  Prisma schema (split files), client, migrations, seeds
   cache/               Redis CacheService + centralized cache-key registry
-  queue/               Queue names, job payload types, Redis URL parser
-  judge/               Judge backend clients (Judge0, JDoodle, Piston) + language maps
+  queue/               RabbitMQ topology + job payload types, Redis URL parser
   shared-types/        Cross-package enums/types (auth, problem, submission, discuss, profile)
   ui/                  Shared React components
   eslint-config/       Shared ESLint config
   typescript-config/   Shared tsconfig presets
 ```
+
+`apps/judge` is a Go module inside the pnpm/Turborepo workspace. Turborepo treats any directory with a `package.json` as a package regardless of language, so the Go app participates in `turbo run build` with no special configuration.
 
 ### `apps/backend-core`
 
@@ -99,14 +104,33 @@ The user-facing API. Apollo Server runs in code-first mode and emits the schema 
 - `subscription` — `listPlans`, `startSubscription`, `cancelSubscription` GraphQL resolver + Razorpay REST webhook controller.
 - `ai` — `aiHint`, `aiHelp`, `aiRoast` mutations, premium-gated via an entitlement guard.
 - `entitlement` — central tier resolution, cached per-user; invalidated on subscription state changes.
-- `bull-board` — basic-auth gated Bull-Board UI at `/queues`.
+- `judge` — the only module that knows RabbitMQ exists. `JudgeDispatcher` publishes the grading job; premium submissions route to `judge.jobs.high`.
+- `health` — `GET /health` (liveness) and `GET /health/deep` (per-service).
 
-### `apps/backend-secondary`
+### `apps/judge`
 
-A headless NestJS app with no HTTP surface — purely BullMQ workers:
+The execution engine. A single Go binary shipped as a Docker image containing `isolate`, `g++` with a precompiled `bits/stdc++.h`, and the `node` 22 binary. See [apps/judge/README.md](apps/judge/README.md) for internals.
 
-- `GraderProcessor` (`grade-submission`, concurrency 5) — see [grader.service.ts](apps/backend-secondary/src/grader/grader.service.ts). Loads submission + problem + template + test cases, assembles source via `assembleSource(driverCode, userCode)`, calls the judge client per test case, fails fast on first non-AC verdict, persists per-case results as JSON on the submission row, busts the user's solved-map cache, and enqueues a `update-problem-stats` job.
-- `ProblemStatsProcessor` (`update-problem-stats`) — idempotent counter increments guarded by a `ProblemStatsLedger` row, so at-least-once delivery is safe.
+Layout, one concern per package:
+
+| Package | Responsibility |
+|---|---|
+| `sandbox` | `Sandbox`/`Box` interfaces + the isolate driver. Imports no litecode type, so it stays liftable. `local.go` is a no-isolation dev fallback for macOS. |
+| `runtime` | Per-language knowledge — compile argv, run argv, process limits. Adding a language is a map entry. |
+| `plan` | Chunk sizing. `T = sqrt(2·B·N/p)`, so chunk count grows as √N. Never mixes cost classes. |
+| `grader` | Orchestrates one submission across 10 numbered checkpoints. |
+| `compare` | Port of the TypeScript output comparator — 1e-9 relative float tolerance, key order irrelevant, array order significant. |
+| `queue` | AMQP consumer. Manual acks, prefetch as the concurrency limiter, explicit reconnect loop. |
+| `db` | pgx/v5 pool. Raw SQL against Prisma's quoted identifiers. |
+| `cache` | Post-verdict Redis invalidation. |
+| `heartbeat` | Liveness key for `/health/deep`. |
+
+Key behaviours:
+
+- **Compile once, run many.** The driver reads NDJSON from stdin — one compact JSON value per line — and writes one line per case. That one-line-per-case property is what makes failure attribution exact when many cases share a process: a mismatch on line 7 is case 7, and a process that dies after 6 lines died on case 7.
+- **The box is recycled after compiling.** `cg-mem` is `memory.peak`, a kernel high-water mark that never decreases, and isolate reuses one cgroup per box. Without the recycle, the compiler's ~200 MB footprint is reported as the solution's memory usage.
+- **Time is a total budget that drains.** `Problem.timeLimit_ms` covers the whole submission, not each case — a per-case limit isn't observable when one process runs many cases. Memory resets per chunk.
+- **Idempotency lives in the database.** `Claim()` and `WriteVerdict()` are conditional UPDATEs guarded on `status <> 'GRADED'`, so a redelivered message is a no-op needing no coordination.
 
 ### `apps/web`
 
@@ -120,23 +144,31 @@ Prisma 5 with the `prismaSchemaFolder` preview feature — the schema is split i
 
 ### `packages/cache`
 
-[CacheService](packages/cache/src/cache.service.ts) wraps ioredis with `get`, `set`, `del`, `delPattern` (SCAN-based, never `KEYS`), and a `getOrSet` cache-aside helper that skips writing nulls. Uses a **separate Redis connection** from BullMQ — queue clients require `maxRetriesPerRequest=null`, which is wrong for request-path reads.
+[CacheService](packages/cache/src/cache.service.ts) wraps ioredis with `get`, `set`, `del`, `delPattern` (SCAN-based, never `KEYS`), and a `getOrSet` cache-aside helper that skips writing nulls. Also exposes `ping()` for the health indicator — deliberately the one method that does *not* swallow errors, since a health check that reports success on failure is worse than none.
 
 All keys are minted via [cache.keys.ts](packages/cache/src/cache.keys.ts), versioned (`v1`, `v2`) so payload-shape changes can be rolled out by bumping the version segment — old entries simply miss and refill.
 
 ### `packages/queue`
 
-The single source of truth for queue names + job payload shapes ([index.ts](packages/queue/index.ts)). Three queues: `grade-submission`, `update-problem-stats`, `update-rating`. Also exports `getRedisConnection(url)`, a parser that turns a `redis://` / `rediss://` URL into the ioredis options object both apps need.
+The RabbitMQ topology and job payload shapes ([index.ts](packages/queue/index.ts)): exchange `litecode` (topic), routing keys `judge.jobs.default` and `judge.jobs.high`, and the `JudgeJob` body.
 
-### `packages/judge`
+**These constants are re-declared in `apps/judge/internal/queue/consumer.go`, and nothing enforces that they match.** A mismatch is silent in the worst way — the publish succeeds and a topic exchange discards the message with no error. Both files carry a comment pointing at the other.
 
-Pluggable judge clients implementing a common [JudgeClient](packages/judge/src/judge.interface.ts) interface. Each backend has its own client + language-map module:
+Also exports `getRedisConnection(url)` for the cache layer.
 
-- `jdoodle.client.ts` — Free tier: 200 credits/day. Platform-level CPU/memory limits.
-- `piston.client.ts` — public emkc.org instance is whitelist-only since 2026-02-15; self-host for unrestricted use. **This project's deploy targets a self-hosted Piston instance.**
-- `rapidapi-judge0.client.ts` — Judge0 Community Edition via RapidAPI.
+## Cross-language contracts
 
-Selected at module-init in `backend-secondary` via the `JUDGE_PROVIDER` env var, injected into `GraderService` through the `JUDGE_CLIENT` token.
+Three things are duplicated between TypeScript and Go because no compiler spans both. Each is a silent failure if they drift:
+
+| Contract | TypeScript | Go | Guard |
+|---|---|---|---|
+| Queue topology | [packages/queue/index.ts](packages/queue/index.ts) | `internal/queue/consumer.go` | comments only |
+| Cache keys | [cache.keys.ts](packages/cache/src/cache.keys.ts) | `internal/cache/cache.go` | [contract spec](apps/backend-core/src/common/cache-keys.contract.spec.ts) |
+| Heartbeat key + payload | [cache.keys.ts](packages/cache/src/cache.keys.ts), `judge.indicator.ts` | `internal/heartbeat/heartbeat.go` | comments only |
+
+The dangerous edit is a **version segment**. Bumping `problem:v2` to `v3` in TypeScript is a correct, deliberate change that silently breaks the judge — it carries on deleting `v2` keys nobody reads while the API serves stale data forever. The contract spec pins the three keys the judge touches for exactly this reason.
+
+A fourth contract, the driver's NDJSON shape, is enforced at runtime rather than statically: the generators in `apps/backend-core/src/admin/template-generator/` emit a looping driver, and `admin.setCodeTemplate` rejects a `driverCode` missing `{{USER_CODE}}`. Nothing can statically detect a driver that reads only one case — that one misgrades silently, which is why drivers should be generated rather than hand-written.
 
 ## Submission & grading flow
 
@@ -148,21 +180,32 @@ Selected at module-init in `backend-secondary` via the `JUDGE_PROVIDER` env var,
    - Free-tier quota: FREE users capped at 5 submissions per problem.
    - `(problemId, language)` template existence is cache-aside (`template:v1:<problemId>:<language>`, TTL 24h, invalidated by `admin.setCodeTemplate`).
 3. Submission row inserted with `status=PENDING`.
-4. BullMQ job pushed onto `grade-submission` with `attempts=3` and exponential backoff.
-5. `GraderProcessor` in `backend-secondary` consumes the job:
-   - Loads submission + problem + templates + test cases.
-   - Skips if already `GRADED` (re-delivery idempotency).
-   - `assembleSource(template.driverCode, submission.code)` produces the full compiled-source string. The driver wires `stdin`-to-args parsing and serializes the return value; the user only supplies the function body.
-   - Marks `RUNNING`, then iterates test cases sequentially:
-     - Calls `judge.run({...})` with the problem's `timeLimit_ms` (wall = 2× CPU) and `memoryLimit_kb`.
-     - Maps judge status → `Verdict` enum, then verifies stdout matches expected output (`outputsMatch`).
-     - **Fail-fast**: first non-AC case breaks the loop.
-   - Persists `testResults` JSON, `verdict`, `runtime_ms` / `memory_kb` (max across cases), `failedTestCaseId`, `errorMessage`, `status=GRADED`.
-   - Invalidates `user:<id>:solved-map` in cache.
-   - Enqueues `update-problem-stats` (`attempts=5`).
-6. `ProblemStatsProcessor` consumes the stats job: increments `Problem.attemptCount` / `solveCount`, guarded by `ProblemStatsLedger` to make double-deliveries no-ops.
+4. `JudgeDispatcher.dispatch` publishes `{ jobId, problemId }` to the `litecode` exchange — `judge.jobs.high` for premium users, `judge.jobs.default` otherwise.
 
-Infrastructure failures inside the judge call (HTTP errors, timeouts) throw out of the processor, so BullMQ retries the whole job per its `attempts` config. Verdicts that come back as `INTERNAL_ERROR` from the judge itself are persisted as final state (not retried).
+   The publish **never throws**. A broker outage leaves the row `PENDING` for the sweeper rather than failing the mutation the user is watching.
+
+5. The Go worker consumes it (checkpoint numbers are the `CHECKPOINT` log lines):
+   1. `job_received`
+   2. `claimed` — conditional `UPDATE … SET status='RUNNING' WHERE status <> 'GRADED'`. Losing this race means another worker has it; ack and stop.
+   3. `bundle_loaded` — submission, problem limits, driver template, test cases ordered by `order`.
+   4. `source_assembled` — `{{USER_CODE}}` replaced with the submission.
+   5. `box_opened` — an isolate box, its id taken from the concurrency slot so two goroutines can never share one.
+   6. `compiled` — one compile for the whole submission, with its own generous limits (compiles need seconds and hundreds of MB; runs need ~2s and 256MB). Then `box_recycled` for a clean cgroup.
+   7. `chunks_planned` — cases grouped by the cost model.
+   8. `chunk_done` (per chunk) — inputs staged as NDJSON, one sandbox run, output compared line-by-line. **Fail-fast** on the first execution failure or mismatch.
+   9. `verdict_computed`
+   10. `verdict_written` — verdict, `testResults`, aggregate `runtime_ms`/`memory_kb`, `failedTestCaseId`, `errorMessage`, plus the `ProblemStatsLedger` row and `ProblemStats` counters, **all in one transaction**.
+6. Caches are invalidated after the commit: the user's solved-map, the problem detail, and every problem-list page.
+
+### Failure handling
+
+**Bad problem data** — missing template, no test cases, a driver without the placeholder — is permanent. It persists `INTERNAL_ERROR` and acks; retrying can't help.
+
+**Infrastructure failures** return an error, and the message is `Nack`ed without requeue. Classic queues have no `x-delivery-limit`, so `requeue=true` would redeliver forever — a hot loop that also burns the message quota. The submission stays `RUNNING` for the sweeper.
+
+**Duplicate delivery** is a no-op: both `Claim` and `WriteVerdict` are guarded conditional UPDATEs, and because the counters share `WriteVerdict`'s transaction they can't be double-applied either.
+
+> **Not yet implemented:** the sweeper. Both recovery paths above currently rely on it, so a broker outage or an infrastructure failure leaves a submission stuck until it exists.
 
 ## AI features (premium)
 
@@ -225,6 +268,9 @@ What's cached today:
 | `template:v1:<problemId>:<language>` | `(problemId, language)` code-template existence — 24h TTL, invalidated by `admin.setCodeTemplate`. |
 | `user:<id>:solved-map` | Per-user map of solved/attempted problem ids. Invalidated whenever a verdict lands. |
 | `user:<id>:tier:v1` | Per-user subscription tier (FREE / PREMIUM). Invalidated by webhook handlers and subscription mutations. |
+| `judge:heartbeat:v1:<workerId>` | Written by each Go worker every 10s with a 30s TTL; read by `/health/deep`. A stopped worker simply expires. |
+
+The judge invalidates `user:<id>:solved-map`, `problem:v2:<slug>` and `problems:list:v2:*` itself after each verdict — see [Cross-language contracts](#cross-language-contracts).
 
 Pattern deletes use `SCAN` (never `KEYS`) so invalidation doesn't block Redis on large key spaces.
 
@@ -235,9 +281,12 @@ Pattern deletes use `SCAN` (never `KEYS`) so invalidation doesn't block Redis on
 - **Node.js** ≥ 18
 - **pnpm** 9
 - **Postgres** (any 14+; managed or local)
-- **Redis** (any 6+; managed or local). Used for both BullMQ queues and the cache layer — same instance is fine.
-- **Judge backend** — for local dev, the easiest path is a **self-hosted Piston** instance (`docker run` from the [engineer-man/piston](https://github.com/engineer-man/piston) repo). Alternatively, sign up for JDoodle (200 credits/day free) or a RapidAPI Judge0 key.
+- **Redis** (any 6+; managed or local). Cache, rate limiting, and judge heartbeats.
+- **RabbitMQ** — a local Docker container or a managed instance (CloudAMQP's free "Little Lemur" tier is sufficient for development).
+- **Docker** — required to run the judge. It executes untrusted code under isolate, which needs Linux namespaces and cgroup v2; on macOS or Windows there is no native path.
 - **Razorpay account** (test mode) — only required if you want to exercise subscriptions / webhooks. Skip for now and the `/plans` endpoint just won't have real plan IDs.
+
+> On macOS you can run the judge natively with `JUDGE_SANDBOX=local` to exercise the queue, database and comparison paths — but that mode applies **no isolation whatsoever** and cannot compile C++ (Apple clang has no `bits/stdc++.h`). It logs a loud warning at startup. Never point it at real submissions.
 
 ### 1. Install dependencies
 
@@ -250,27 +299,44 @@ pnpm install
 Copy each `.env.example` to `.env` and fill in:
 
 - `apps/backend-core/.env`
-- `apps/backend-secondary/.env`
+- `apps/judge/.env`
 - `apps/web/.env`
 - `packages/db/.env`
 
-The same `DATABASE_URL` must appear in all three backend env files (the two backends share a database; `packages/db/.env` is used by the Prisma CLI).
+`DATABASE_URL` points at the same database everywhere, but the judge's string is deliberately **not identical**: it runs in a container, so its host is `host.docker.internal` rather than `localhost`, and it should connect as a scoped role rather than the app user.
 
 Key variables:
 
 | Variable | Where | What it does |
 |----------|-------|--------------|
-| `DATABASE_URL` | core, secondary, db | Postgres connection. **Same value in all three.** |
-| `REDIS_URL` | core, secondary | Used by both BullMQ and the cache layer. Same instance. |
+| `DATABASE_URL` | core, judge, db | Postgres connection. Same database; judge uses a container-visible host. |
+| `AMQP_URL` | core, judge | RabbitMQ. **Must be the same broker on both sides** — publisher and consumer have to meet. `backend-core` reads it with `getOrThrow`, so it won't boot without it. |
+| `REDIS_URL` | core, judge | Cache + heartbeats. Optional for the judge; without it, it grades fine but reports as down in `/health/deep`. |
 | `JWT_SECRET`, `JWT_EXPIRES_IN` | core | Auth token signing. |
-| `BULL_BOARD_USER`, `BULL_BOARD_PASS` | core | Basic-auth for `/queues`. |
 | `RAZORPAY_KEY_ID`, `_SECRET`, `_WEBHOOK_SECRET` | core | Razorpay API + webhook signature verification. |
 | `AI_PROVIDER` | core | `mock` \| `openai` \| `gemini` \| `grok` \| `openrouter`. Defaults to `mock` (no key needed). |
-| `JUDGE_PROVIDER` | secondary | `jdoodle` \| `piston` \| `judge0`. |
-| `JDOODLE_CLIENT_ID`, `_CLIENT_SECRET` | secondary | Required if `JUDGE_PROVIDER=jdoodle`. |
-| `PISTON_BASE_URL` | secondary | Point at your self-hosted Piston. The public `emkc.org` instance is whitelist-only since 2026-02-15. |
-| `JUDGE0_RAPIDAPI_KEY`, `_HOST` | secondary | Required if `JUDGE_PROVIDER=judge0`. |
+| `JUDGE_SANDBOX` | judge | `isolate` (real) or `local` (**no isolation**, dev only). Compose passes the env file, which overrides the image default — so this must be set explicitly. |
+| `JUDGE_CONCURRENCY` | judge | Sandbox concurrency and isolate box-id pool size. Should be roughly `cores - 2`: sandboxes are CPU-bound, and oversubscribing inflates every measured runtime, which turns correct solutions into TLEs. |
+| `JUDGE_QUEUE` | judge | Queue name, which doubles as the routing key. Leave as `judge.jobs.default` unless adding a second worker. |
 | `VITE_API_URL` | web | Base URL of `backend-core`. Defaults to `http://localhost:3000`. |
+
+### Optional: scoped database role for the judge
+
+The judge runs untrusted code, so in anything beyond local development it should not connect as the app user:
+
+```sql
+CREATE ROLE litejudge LOGIN PASSWORD '…';
+GRANT CONNECT ON DATABASE litecode TO litejudge;
+GRANT USAGE ON SCHEMA public TO litejudge;
+GRANT SELECT ON "Problem", "TestCase", "CodeTemplate" TO litejudge;
+GRANT SELECT, UPDATE (status, verdict, "testResults", runtime_ms, memory_kb,
+                      "errorMessage", "failedTestCaseId", "startedAt",
+                      "completedAt") ON "Submission" TO litejudge;
+GRANT INSERT ON "ProblemStatsLedger" TO litejudge;
+GRANT INSERT, UPDATE ON "ProblemStats" TO litejudge;
+```
+
+Run these **after** migrating — you can't grant on tables that don't exist — and re-run them after any migration that adds a column the judge writes. New columns don't inherit column-level grants.
 
 ### 3. Database
 
@@ -290,25 +356,39 @@ node packages/db/seed/seed_topics.js   # creates the default Discuss topics
 
 ### 4. Run
 
-Everything in parallel via Turborepo:
+The TypeScript apps run natively; the judge runs in Docker.
 
 ```sh
-pnpm dev
-```
-
-Or per-app:
-
-```sh
-pnpm --filter backend-core dev
-pnpm --filter backend-secondary dev
+pnpm --filter backend-core start:dev
 pnpm --filter web dev
+
+cd apps/judge && make up          # builds the image and runs the worker attached
 ```
+
+Other judge targets: `make docker` (build only), `make logs`, `make down`, and `make shell` for a bash prompt in the same image — useful for diagnosing isolate and cgroups.
+
+The first image build takes a few minutes: three apt stages, an isolate compile, and the ~150 MB precompiled-header step. After that it's cached unless `go.mod` changes.
 
 ### 5. Verify
 
 - **GraphQL Playground** — http://localhost:3000/graphql
-- **Bull-Board** — http://localhost:3000/queues (basic auth)
 - **Web app** — http://localhost:5173
+- **Health** — `curl -s localhost:3000/health/deep | jq`
+
+A healthy judge startup looks like:
+
+```
+judge starting            sandbox=isolate concurrency=1 os=linux/arm64
+isolate found             version=…
+isolate preflight passed  box_root=/var/local/lib/isolate/0
+postgres connected
+judge ready
+consuming                 queue=judge.jobs.default prefetch=1
+```
+
+The preflight runs a real `--init`/`--cleanup` round-trip before the consumer starts, so a broken cgroup setup fails at boot with isolate's own error message rather than surfacing later as a dead-lettered job.
+
+Set `LOG_LEVEL=debug` to get the ten numbered `CHECKPOINT` lines per submission. `grep CHECKPOINT | grep <submissionId>` gives the full trace; fewer than ten with no error means something returned early.
 
 To exercise Razorpay webhooks locally, expose `backend-core` via a tunnel (ngrok, cloudflared, etc.) and register the tunnel URL + `/webhooks/razorpay` in the Razorpay dashboard with `RAZORPAY_WEBHOOK_SECRET`.
 
@@ -317,6 +397,16 @@ To exercise Razorpay webhooks locally, expose `backend-core` via a tunnel (ngrok
 - **Primary**: GraphQL at `POST /graphql`. Schema is generated from code-first decorators on every boot and written to [apps/backend-core/schema.gql](apps/backend-core/schema.gql) — committed so it's diffable.
 - **REST**:
   - `POST /webhooks/razorpay` — Razorpay lifecycle webhook.
-  - `GET /health` — health check.
-  - `/queues/*` — Bull-Board UI (basic-auth gated).
+  - `GET /health` — liveness. 200 whenever the process is up; never touches a dependency.
+  - `GET /health/deep` — per-service status (Postgres, Redis, RabbitMQ, judge workers, submission backlog). Returns 503 **only** if a service marked `critical` is down — currently just Postgres. Everything else reports `degraded`, because a Redis outage means cache misses and a broker outage means grading pauses; neither is a reason to pull the instance out of a load balancer.
   - Auth controller endpoints for login / signup / admin-invitation acceptance.
+
+## Known gaps
+
+- **Sweeper** — nothing re-enqueues submissions stuck in `PENDING` (publish failed) or `RUNNING` (worker died). Both failure paths depend on it.
+- **Large test cases** — object-storage-backed cases return an error; only inline cases are supported.
+- **User output corrupts results** — the driver writes results to stdout, so a `cout`/`console.log` in a submission shifts line alignment and produces a wrong answer. Fix is a dedicated results stream.
+- **Per-case metrics** — `runtime_ms`/`memory_kb` are null per case by design; chunked execution measures one process running many cases.
+- **Retry ladder** — infrastructure failures dead-letter immediately. Real backoff needs quorum queues plus the delayed-message plugin.
+- **TypeScript templates** — the generator is unregistered; its driver is single-case and there's no TS entry in the Go runtime registry.
+- **No queue dashboard** — Bull-Board went with BullMQ. RabbitMQ's own management UI covers the broker; there is no per-job inspector.

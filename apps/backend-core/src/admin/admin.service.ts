@@ -37,6 +37,9 @@ const PROBLEM_INCLUDE = {
   testCases: { orderBy: { order: 'asc' as const } },
 } satisfies Prisma.ProblemInclude;
 
+// Must stay in sync with userCodePlaceholder in apps/judge/internal/grader.
+const USER_CODE_PLACEHOLDER = '{{USER_CODE}}';
+
 const argsShapeSchema = z.array(
   z.object({
     name: z.string().min(1),
@@ -93,6 +96,28 @@ export class AdminService {
     };
   }
 
+  /**
+   * The judge substitutes the user's submission for {{USER_CODE}} before
+   * compiling. Without it the assembled source contains no solution at all.
+   *
+   * apps/judge already refuses such a template, but only once a user has
+   * submitted — the author is long gone by then and sees nothing. Checking
+   * here fails the person who can actually fix it.
+   *
+   * This does NOT verify the harder contract: the driver must loop over stdin
+   * and emit exactly one compact JSON line per case. Nothing static can check
+   * that, and a driver that reads a single case misgrades silently — one
+   * output line for a ten-case chunk reads as "died on case 2". Generate
+   * drivers with the generateTemplate query rather than hand-writing them.
+   */
+  private assertDriverShape(language: Language, driverCode: string): void {
+    if (!driverCode.includes(USER_CODE_PLACEHOLDER)) {
+      throw new BadRequestException(
+        `driverCode for ${language} must contain the ${USER_CODE_PLACEHOLDER} placeholder`,
+      );
+    }
+  }
+
   generateBoilerplate(language: Language, signature: SignatureInput): GeneratedTemplateModel {
     try {
       const { starterCode, driverCode } = generateTemplate(language, {
@@ -107,6 +132,11 @@ export class AdminService {
   }
 
   async createProblem(adminId: string, input: CreateProblemInput): Promise<ProblemModel> {
+    // Before the transaction: a bad driver should cost nothing.
+    for (const t of input.templates ?? []) {
+      this.assertDriverShape(t.language, t.driverCode);
+    }
+
     const result = await this.prisma.$transaction(async (tx) => {
       const topics = await this.resolveTopics(tx, input.topicIds);
 
@@ -213,6 +243,8 @@ export class AdminService {
   }
 
   async setCodeTemplate(problemId: string, input: TemplateInput): Promise<CodeTemplateModel> {
+    this.assertDriverShape(input.language, input.driverCode);
+
     const problem = await this.prisma.problem.findUnique({
       where: { id: problemId },
       select: { slug: true },
@@ -495,9 +527,10 @@ export class AdminService {
   private validateForPublish(problem: ProblemWithRelations): string[] {
     const errors: string[] = [];
 
-    if (problem.topics.length === 0) {
-      errors.push('Problem must have at least one topic');
-    }
+    // Topics are deliberately NOT required. They drive browse/filter only —
+    // an untagged problem is harder to find but grades identically. Everything
+    // below is different: without a template or test cases the judge has
+    // nothing to run, so publishing would guarantee a broken submission.
 
     if (problem.templates.length === 0) {
       errors.push('Problem must have at least one code template');

@@ -1,0 +1,78 @@
+# Judge worker only.
+#
+# Postgres and Redis are assumed to be running already (you have those images),
+# RabbitMQ is CloudAMQP, and NestJS runs natively on the host. Nothing else
+# belongs in here.
+#
+#   docker compose up --build judge          # run it
+#   docker compose run --rm shell            # poke around inside (debug profile)
+
+services:
+  judge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: litecode-judge:dev
+    container_name: litecode-judge
+
+    # NOTE: env_file OVERRIDES the ENV lines in the Dockerfile. So JUDGE_SANDBOX
+    # must say `isolate` in .env — you can't rely on the image default once you
+    # pass this file.
+    env_file: .env
+
+    # isolate needs mount, pivot_root and cgroup access. Not optional.
+    privileged: true
+
+    # NOTE: deliberately NOT `cgroup: host`. The private namespace is what we
+    # want — the container's own cgroup becomes its root, so the entrypoint can
+    # delegate a subtree inside it. With the host namespace it would be writing
+    # into the VM's real cgroup tree instead. Verified working as-is.
+
+    tmpfs:
+      # isolate's box root. Keeping job files in RAM avoids churning the
+      # container's writable layer. `exec` is REQUIRED — without it compiled
+      # submissions cannot run.
+      - /var/local/lib/isolate:rw,exec,size=512m
+
+    volumes:
+      # Content-addressed cache for large (object-store) test cases. Named so
+      # it survives rebuilds — re-downloading 8MB cases on every restart is
+      # slow and pointless.
+      - judge-cache:/var/lib/judge/cache
+
+    extra_hosts:
+      # Built in on Docker Desktop, but declaring it keeps this working if you
+      # ever run the same compose file on a Linux host.
+      - "host.docker.internal:host-gateway"
+
+    # Keep this "no" while you're iterating: a crash-looping worker buries the
+    # error you actually want to read. Switch to unless-stopped once it's real.
+    restart: "no"
+
+    # SIGTERM cancels the consumer context; in-flight grading finishes and
+    # anything unacked is redelivered. 30s is comfortably longer than a
+    # worst-case submission.
+    stop_grace_period: 30s
+
+  # Interactive shell in the same image, for diagnosing the sandbox.
+  #   docker compose run --rm shell
+  shell:
+    profiles: ["debug"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: litecode-judge:dev
+    env_file: .env
+    privileged: true
+    cgroup: host
+    tmpfs:
+      - /var/local/lib/isolate:rw,exec,size=512m
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Keeps the entrypoint (so the cgroup subtree is set up exactly as the real
+    # worker sees it) and swaps only the command. Overriding entrypoint here
+    # would give you a shell where isolate is guaranteed to fail.
+    command: ["/bin/bash"]
+
+volumes:
+  judge-cache:

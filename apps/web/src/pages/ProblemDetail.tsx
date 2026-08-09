@@ -49,11 +49,27 @@ import {
 import { LANGUAGE_LABELS, MONACO_LANG } from '@/lib/language'
 import { useTheme } from '@/lib/theme'
 import { useCodeDraftsStore } from '@/lib/stores/code-drafts-store'
-import type { Language, PublicTestCase, Submission, TestResultEntry } from '@/lib/types'
+import type {
+  Language,
+  PublicProblem,
+  PublicTestCase,
+  Submission,
+  TestResultEntry,
+} from '@/lib/types'
 
 function formatJson(value: unknown) {
   try {
     return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+// Single-line rendering, LeetCode-style: `nums = [2,7,11,15]` rather than a
+// pretty-printed block.
+function formatInline(value: unknown) {
+  try {
+    return JSON.stringify(value)
   } catch {
     return String(value)
   }
@@ -538,15 +554,9 @@ function ProblemSubmissionsPane({
   )
 }
 
-function DescriptionPane({ problem }: { problem: NonNullable<ReturnType<typeof useQuery>['data']> & {
-  title: string
-  difficulty: 'EASY' | 'MEDIUM' | 'HARD'
-  rating: number
-  description: string
-  attempted: boolean
-  solved: boolean
-  topics: { id: string; name: string; slug: string }[]
-} }) {
+function DescriptionPane({ problem }: { problem: PublicProblem }) {
+  const argNames = problem.signature.args.map((a) => a.name)
+
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -578,6 +588,43 @@ function DescriptionPane({ problem }: { problem: NonNullable<ReturnType<typeof u
 
       <div className="prose-leet text-sm">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{problem.description}</ReactMarkdown>
+      </div>
+
+      {problem.sampleTestCases.length > 0 && (
+        <div className="mt-6 space-y-5">
+          {problem.sampleTestCases.map((tc, i) => {
+            const inputArr = Array.isArray(tc.inlineInput) ? tc.inlineInput : [tc.inlineInput]
+            return (
+              <div key={tc.id}>
+                <p className="mb-2 text-sm font-semibold">Example {i + 1}:</p>
+                <div className="space-y-1 border-l-2 border-border py-1 pl-4 font-mono text-xs">
+                  <p>
+                    <span className="font-semibold">Input: </span>
+                    {argNames
+                      .map((name, j) => `${name} = ${formatInline(inputArr[j])}`)
+                      .join(', ')}
+                  </p>
+                  <p>
+                    <span className="font-semibold">Output: </span>
+                    {formatInline(tc.inlineOutput)}
+                  </p>
+                  {tc.explanation && (
+                    <p>
+                      <span className="font-semibold">Explanation: </span>
+                      {tc.explanation}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="mt-6 space-y-1 text-xs text-muted-foreground">
+        <p className="text-sm font-semibold text-foreground">Constraints:</p>
+        <p>Time limit: {problem.timeLimit_ms} ms</p>
+        <p>Memory limit: {(problem.memoryLimit_kb / 1024).toFixed(0)} MB</p>
       </div>
     </div>
   )

@@ -8,7 +8,16 @@ model Problem {
   difficulty  Difficulty @default(EASY)
   rating      Int        @default(1500) // numeric difficulty, typical range 800–3500
 
-  // Per-test-case execution limits. Apply uniformly to every test case.
+  // Execution limits for a submission against this problem.
+  //
+  // timeLimit_ms is the TOTAL CPU budget for the whole run, not a per-case
+  // allowance. The judge batches many test cases into one sandbox invocation,
+  // which reports a single aggregate CPU number — a per-case limit isn't
+  // observable there. Same semantic LeetCode shows: one limit for the run.
+  //
+  // memoryLimit_kb is peak memory for a single sandbox invocation. It resets
+  // between chunks, so a case never fails because of allocations an earlier
+  // case made.
   timeLimit_ms   Int @default(2000)
   memoryLimit_kb Int @default(262144) // 256 MB
 
