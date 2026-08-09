@@ -22,11 +22,16 @@ export const cacheKeys = {
   }): string {
     return `problems:list:v2:t=${params.tier}:d=${normalize(params.difficulty)}:p=${params.page}:l=${params.limit}`;
   },
+  // DUPLICATED in apps/judge/internal/cache/cache.go — see problemBySlug below.
   problemsListPattern(): string {
     return 'problems:list:v2:*';
   },
 
   // ---- Public problem detail by slug ----
+  // DUPLICATED in apps/judge/internal/cache/cache.go — the Go worker busts this
+  // itself after writing a verdict. Bumping the version here without changing
+  // it there leaves stale detail served forever, silently. Pinned by
+  // apps/backend-core/src/common/cache-keys.contract.spec.ts.
   problemBySlug(slug: string): string {
     return `problem:v2:${slug}`;
   },
@@ -48,6 +53,7 @@ export const cacheKeys = {
   },
 
   // ---- Per-user solved/attempted map ----
+  // DUPLICATED in apps/judge/internal/cache/cache.go — see problemBySlug above.
   userSolvedMap(userId: string): string {
     return `user:${userId}:solved-map`;
   },
@@ -56,5 +62,16 @@ export const cacheKeys = {
   // Invalidated by webhook handlers and subscription mutations.
   userTier(userId: string): string {
     return `user:${userId}:tier:v1`;
+  },
+
+  // ---- Judge worker liveness ----
+  // Written by the Go worker on a ticker with a TTL slightly longer than the
+  // interval, so the key simply expires when a worker stops. Read by
+  // GET /health/deep. Absence of any key means nothing is grading.
+  judgeHeartbeat(workerId: string): string {
+    return `judge:heartbeat:v1:${workerId}`;
+  },
+  judgeHeartbeatPattern(): string {
+    return 'judge:heartbeat:v1:*';
   },
 };

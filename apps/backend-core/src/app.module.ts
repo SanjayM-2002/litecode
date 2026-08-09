@@ -1,9 +1,7 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { BullModule } from '@nestjs/bullmq';
+import { ConfigModule } from '@nestjs/config';
 import { CacheModule } from '@litecode/cache';
 import { PrismaModule } from '@litecode/db';
-import { getRedisConnection } from '@litecode/queue';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { HealthModule } from './health/health.module';
@@ -18,7 +16,6 @@ import { ParticipantModule } from './participant/participant.module';
 import { SubmissionModule } from './submission/submission.module';
 import { SolutionModule } from './solution/solution.module';
 import { DiscussModule } from './discuss/discuss.module';
-import { BullBoardModule } from './bull-board/bull-board.module';
 import { EntitlementModule } from './entitlement/entitlement.module';
 import { AiModule } from './ai/ai.module';
 import { SubscriptionModule } from './subscription/subscription.module';
@@ -26,13 +23,7 @@ import { SubscriptionModule } from './subscription/subscription.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    BullModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        connection: getRedisConnection(config.get<string>('REDIS_URL')),
-      }),
-    }),
+    // RabbitMQ is registered inside JudgeModule, not here — see the note there.
     PrismaModule,
     CacheModule,
     EntitlementModule,
@@ -52,7 +43,6 @@ import { SubscriptionModule } from './subscription/subscription.module';
     SubmissionModule,
     SolutionModule,
     DiscussModule,
-    BullBoardModule,
     AiModule,
     SubscriptionModule,
   ],

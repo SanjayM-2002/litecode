@@ -1,4 +1,3 @@
-import { InjectQueue } from '@nestjs/bullmq';
 import {
   BadRequestException,
   ForbiddenException,
@@ -6,10 +5,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CacheService, cacheKeys } from '@litecode/cache';
-import { GradeSubmissionJob, QUEUES } from '@litecode/queue';
 import { Prisma, PrismaService } from '@litecode/db';
 import { Role, SubmissionStatus, UserTier } from '@litecode/shared-types';
-import { Queue } from 'bullmq';
+import { JudgeDispatcher } from '../judge/judge-dispatcher.service';
 import { clampPagination } from '../common/dto/pagination.input';
 import { buildMeta } from '../common/models/pagination-meta.model';
 import { JwtPayload } from '../auth/auth.service';
@@ -29,8 +27,7 @@ export class SubmissionService {
     private readonly prisma: PrismaService,
     private readonly cache: CacheService,
     private readonly entitlement: EntitlementService,
-    @InjectQueue(QUEUES.gradeSubmission)
-    private readonly gradeQueue: Queue<GradeSubmissionJob>,
+    private readonly judge: JudgeDispatcher,
   ) {}
 
   async submit(userId: string, input: SubmitSolutionInput): Promise<SubmissionModel> {
@@ -99,15 +96,12 @@ export class SubmissionService {
       },
     });
 
-    await this.gradeQueue.add(
-      'grade',
-      { submissionId: submission.id },
-      {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 5_000 },
-        removeOnComplete: 1_000,
-        removeOnFail: 5_000,
-      },
+    // Hand off to the Go judge worker. This never throws — a broker outage
+    // leaves the row PENDING and the sweeper re-enqueues it, rather than
+    // failing the mutation the user is watching.
+    await this.judge.dispatch(
+      { jobId: submission.id, problemId: submission.problemId },
+      userTier === UserTier.PREMIUM ? 'high' : 'default',
     );
 
     return submission as unknown as SubmissionModel;

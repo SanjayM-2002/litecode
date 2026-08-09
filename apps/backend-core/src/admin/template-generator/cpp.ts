@@ -46,19 +46,27 @@ public:
 };
 `;
 
+  // Indented for the loop body inside main().
   const argUnpack = sig.args
-    .map((a, i) => `    ${cppType(a.type)} ${a.name} = input[${i}].get<${cppType(a.type)}>();`)
+    .map((a, i) => `        ${cppType(a.type)} ${a.name} = input[${i}].get<${cppType(a.type)}>();`)
     .join('\n');
 
   const callExpr = `s.${sig.methodName}(${sig.args.map((a) => a.name).join(', ')})`;
 
+  // `endl` rather than "\n" is deliberate — see the note in the driver.
   const callAndPrint =
     sig.returnType === 'void'
-      ? `    ${callExpr};\n    cout << "null" << endl;`
-      : `    auto out = ${callExpr};\n    cout << json(out).dump() << endl;`;
+      ? `        ${callExpr};\n        cout << "null" << endl;`
+      : `        auto out = ${callExpr};\n        cout << json(out).dump() << endl;`;
 
   const driverCode = `// Driver: combines user code with input parsing and output formatting.
 // Expects nlohmann/json single-header (json.hpp) on the include path.
+//
+// The judge feeds test cases as NDJSON — one compact JSON value per line — and
+// reads back one compact JSON value per line. That one-line-per-case property
+// is what lets the judge attribute a failure to an exact test case when several
+// run in a single process: a mismatch on line 7 is unambiguously case 7, and a
+// process that dies after 6 lines died on case 7.
 #include <bits/stdc++.h>
 #include "json.hpp"
 using namespace std;
@@ -67,11 +75,19 @@ using json = nlohmann::json;
 {{USER_CODE}}
 
 int main() {
-    json input;
-    cin >> input;
+    string line;
+    // getline + parse rather than \`cin >> input\`: nlohmann's stream operator
+    // throws at end of input instead of failing the loop condition cleanly.
+    while (getline(cin, line)) {
+        if (line.empty()) continue;
+        json input = json::parse(line);
 ${argUnpack}
-    Solution s;
+        // Constructed inside the loop so member state cannot leak between
+        // cases. \`static\` locals and globals still persist — same behaviour
+        // as LeetCode, and the user's responsibility.
+        Solution s;
 ${callAndPrint}
+    }
     return 0;
 }
 `;

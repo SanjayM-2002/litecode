@@ -81,6 +81,38 @@ export class CacheService implements OnModuleDestroy {
     }
   }
 
+  // Liveness probe for the health endpoint.
+  //
+  // Unlike every other method here, this deliberately does NOT swallow errors.
+  // The rest of this class degrades to a cache miss on failure, which is right
+  // for the request path — but it means `get()` returning null cannot tell
+  // "key absent" from "Redis is down", so a health check built on it would
+  // always report healthy.
+  async ping(): Promise<void> {
+    const reply = await this.client.ping();
+    if (reply !== 'PONG') {
+      throw new Error(`unexpected PING reply: ${reply}`);
+    }
+  }
+
+  // SCAN-based key listing, capped. Never use KEYS — it blocks Redis.
+  async scanKeys(pattern: string, max = 500): Promise<string[]> {
+    const found: string[] = [];
+    let cursor = '0';
+    do {
+      const [next, keys] = await this.client.scan(
+        cursor,
+        'MATCH',
+        pattern,
+        'COUNT',
+        200,
+      );
+      cursor = next;
+      found.push(...keys);
+    } while (cursor !== '0' && found.length < max);
+    return found.slice(0, max);
+  }
+
   // Cache-aside helper. If the loader returns null/undefined, no entry is written
   // (so a 404 path won't poison the cache).
   async getOrSet<T>(
