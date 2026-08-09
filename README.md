@@ -401,12 +401,3 @@ To exercise Razorpay webhooks locally, expose `backend-core` via a tunnel (ngrok
   - `GET /health/deep` — per-service status (Postgres, Redis, RabbitMQ, judge workers, submission backlog). Returns 503 **only** if a service marked `critical` is down — currently just Postgres. Everything else reports `degraded`, because a Redis outage means cache misses and a broker outage means grading pauses; neither is a reason to pull the instance out of a load balancer.
   - Auth controller endpoints for login / signup / admin-invitation acceptance.
 
-## Known gaps
-
-- **Sweeper** — nothing re-enqueues submissions stuck in `PENDING` (publish failed) or `RUNNING` (worker died). Both failure paths depend on it.
-- **Large test cases** — object-storage-backed cases return an error; only inline cases are supported.
-- **User output corrupts results** — the driver writes results to stdout, so a `cout`/`console.log` in a submission shifts line alignment and produces a wrong answer. Fix is a dedicated results stream.
-- **Per-case metrics** — `runtime_ms`/`memory_kb` are null per case by design; chunked execution measures one process running many cases.
-- **Retry ladder** — infrastructure failures dead-letter immediately. Real backoff needs quorum queues plus the delayed-message plugin.
-- **TypeScript templates** — the generator is unregistered; its driver is single-case and there's no TS entry in the Go runtime registry.
-- **No queue dashboard** — Bull-Board went with BullMQ. RabbitMQ's own management UI covers the broker; there is no per-job inspector.
