@@ -3,7 +3,7 @@ import { CacheService, cacheKeys } from '@litecode/cache';
 import { PrismaService } from '@litecode/db';
 import { UserTier } from '@litecode/shared-types';
 
-const TIER_TTL_SEC = 300; // 5 min — short enough that missed invalidations recover quickly
+const TIER_TTL_SEC = 300; // 5 min
 
 @Injectable()
 export class EntitlementService {

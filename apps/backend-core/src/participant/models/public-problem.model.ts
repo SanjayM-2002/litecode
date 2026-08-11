@@ -6,13 +6,6 @@ import { PublicCodeTemplateModel } from './public-code-template.model';
 import { PublicTestCaseModel } from './public-test-case.model';
 import '../../admin/models/enums';
 
-/**
- * Participant-facing Problem type. Subset of the admin Problem.
- * - excludes driverCode (lives only on PublicCodeTemplate-less templates here too)
- * - excludes hidden test cases (only sample cases included)
- * - excludes isPublished (always true for results returned to participants)
- * - excludes createdById / authoring metadata
- */
 @ObjectType('PublicProblem')
 export class PublicProblemModel {
   @Field(() => ID)

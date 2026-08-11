@@ -1,11 +1,3 @@
-// Package compare decides whether a program's output matches the expected
-// value.
-//
-// This is a port of output-comparator.ts. Two implementations of the same
-// semantics now exist, and the failure mode of them drifting apart is SILENT
-// MIS-GRADING — the worst bug class a judge has. The defence is
-// testdata/golden.json, a fixture exercised by both the Go and TypeScript
-// test suites, so a divergence fails CI instead of failing a user.
 package compare
 
 import (
@@ -14,7 +6,6 @@ import (
 	"strings"
 )
 
-// Match reports whether stdout parses to a value deep-equal to expected.
 func Match(stdout []byte, expected json.RawMessage) bool {
 	if len(stdout) == 0 {
 		return false
@@ -33,14 +24,6 @@ func Match(stdout []byte, expected json.RawMessage) bool {
 	return deepEqual(actual, want)
 }
 
-// MatchLines splits a chunk's NDJSON stdout — the driver prints exactly one
-// compact JSON value per case — and compares each line against its expected
-// value.
-//
-// It returns the index of the FIRST mismatch, or -1 if every line matched.
-// A short read (fewer lines than cases) means the process died partway, and
-// the index of the first missing line is the case that killed it — which is
-// how failure attribution stays exact even when chunked.
 func MatchLines(stdout []byte, expected []json.RawMessage) (badIndex int, produced int) {
 	lines := splitNonEmpty(stdout)
 	produced = len(lines)
@@ -67,11 +50,6 @@ func splitNonEmpty(b []byte) [][]byte {
 	return out
 }
 
-// deepEqual mirrors the TypeScript comparator exactly:
-//   - numbers compare with a 1e-9 RELATIVE tolerance
-//   - object key order is irrelevant
-//   - array order IS significant (callers sort when it shouldn't be)
-//   - null equals null
 func deepEqual(a, b any) bool {
 	switch av := a.(type) {
 	case nil:

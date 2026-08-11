@@ -10,7 +10,7 @@ import { OpenRouterProvider } from './openrouter.provider';
 type ProviderName = 'mock' | 'openai' | 'gemini' | 'grok' | 'openrouter';
 
 // Adding a new provider: implement AiProvider, register it in the constructor,
-// add a case in `resolve()`. No other code changes required.
+// add a case in `resolve()`.
 @Injectable()
 export class AiProviderFactory {
   private readonly logger = new Logger(AiProviderFactory.name);

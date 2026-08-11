@@ -10,8 +10,6 @@ export class CacheService implements OnModuleDestroy {
 
   constructor(config: ConfigService) {
     const conn = getRedisConnection(config.get<string>('REDIS_URL'));
-    // Separate connection from BullMQ — queue clients need maxRetriesPerRequest=null,
-    // which is wrong for general request-path reads.
     this.client = new Redis({
       ...conn,
       lazyConnect: false,
@@ -81,13 +79,6 @@ export class CacheService implements OnModuleDestroy {
     }
   }
 
-  // Liveness probe for the health endpoint.
-  //
-  // Unlike every other method here, this deliberately does NOT swallow errors.
-  // The rest of this class degrades to a cache miss on failure, which is right
-  // for the request path — but it means `get()` returning null cannot tell
-  // "key absent" from "Redis is down", so a health check built on it would
-  // always report healthy.
   async ping(): Promise<void> {
     const reply = await this.client.ping();
     if (reply !== 'PONG') {
@@ -113,8 +104,6 @@ export class CacheService implements OnModuleDestroy {
     return found.slice(0, max);
   }
 
-  // Cache-aside helper. If the loader returns null/undefined, no entry is written
-  // (so a 404 path won't poison the cache).
   async getOrSet<T>(
     key: string,
     ttlSec: number,

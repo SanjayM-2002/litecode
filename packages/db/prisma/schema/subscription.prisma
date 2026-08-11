@@ -47,9 +47,6 @@ model Subscription {
   @@index([currentPeriodEnd])
 }
 
-// Idempotency log for Razorpay webhooks. The unique `razorpayEventId`
-// makes duplicate deliveries a no-op (insert returns unique-violation,
-// handler short-circuits with 200).
 model WebhookEvent {
   id              String @id @default(cuid())
   razorpayEventId String @unique

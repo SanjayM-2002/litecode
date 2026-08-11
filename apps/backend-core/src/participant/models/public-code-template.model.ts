@@ -2,9 +2,7 @@ import { Field, ID, ObjectType } from '@nestjs/graphql';
 import { Language } from '@litecode/shared-types';
 import '../../admin/models/enums';
 
-/**
- * Participant-facing code template. Intentionally OMITS driverCode.
- */
+
 @ObjectType('PublicCodeTemplate')
 export class PublicCodeTemplateModel {
   @Field(() => ID)

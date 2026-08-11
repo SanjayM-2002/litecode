@@ -6,6 +6,7 @@ import {
   ListChecks,
   LogOut,
   MessageSquare,
+  ShieldCheck,
   Sparkles,
   Tags,
   User as UserIcon,
@@ -40,6 +41,7 @@ export function Navbar() {
     enabled: !!user,
   })
   const isPremium = me?.tier === 'PREMIUM'
+  const isAdmin = user?.role === 'ADMIN'
 
   const handleLogout = () => {
     logout()
@@ -73,6 +75,12 @@ export function Navbar() {
               <ListChecks className="h-4 w-4" />
               Submissions
             </NavLink>
+            {isAdmin && (
+              <NavLink to="/admin" className={navLinkClass}>
+                <ShieldCheck className="h-4 w-4" />
+                Admin
+              </NavLink>
+            )}
           </nav>
         </div>
 
@@ -118,6 +126,15 @@ export function Navbar() {
                   <Sparkles className="h-4 w-4" />
                   {isPremium ? 'Manage subscription' : 'Upgrade to Premium'}
                 </DropdownMenuItem>
+                {isAdmin && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => navigate('/admin')}>
+                      <ShieldCheck className="h-4 w-4" />
+                      Admin portal
+                    </DropdownMenuItem>
+                  </>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={handleLogout}>
                   <LogOut className="h-4 w-4" />

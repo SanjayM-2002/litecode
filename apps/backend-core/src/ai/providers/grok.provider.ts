@@ -11,9 +11,7 @@ import {
   AiProvider,
 } from './ai-provider.interface';
 
-// xAI exposes an OpenAI-compatible chat-completions endpoint, so this provider
-// is structurally identical to OpenAiProvider — only the base URL, key, and
-// default model differ.
+
 const GROK_URL = 'https://api.x.ai/v1/chat/completions';
 
 interface GrokResponse {

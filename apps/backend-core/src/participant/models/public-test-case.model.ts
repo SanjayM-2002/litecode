@@ -1,10 +1,7 @@
 import { Field, ID, Int, ObjectType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 
-/**
- * Sample test cases visible to participants.
- * Hidden cases are filtered out at the resolver layer; this type is only ever populated with isSample=true rows.
- */
+
 @ObjectType('PublicTestCase')
 export class PublicTestCaseModel {
   @Field(() => ID)

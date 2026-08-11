@@ -2,26 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { CacheService, cacheKeys } from '@litecode/cache';
 import { HealthIndicator, ServiceCheck } from '../health.types';
 
-/** Shape the Go worker writes to judge:heartbeat:v1:{workerId}. */
+// Shape of Go worker writing to judge:heartbeat:v1:{workerId}.
 interface Heartbeat {
   workerId: string;
   sandbox: string;
   slots: number;
-  ts: string; // RFC3339
+  ts: string;
 }
 
-/**
- * Judge worker liveness, observed through Redis rather than by calling the
- * workers directly.
- *
- * A heartbeat key is the right mechanism here because the workers run on a
- * separate machine, have no HTTP server, and execute untrusted code — opening
- * a network path from the API to them would be the wrong direction. Each
- * worker writes its key on a ticker with a TTL slightly longer than the
- * interval, so a stopped worker simply expires.
- *
- * Not critical: no workers means grading stalls, not that the API is unusable.
- */
 @Injectable()
 export class JudgeIndicator implements HealthIndicator {
   readonly name = 'judge';
@@ -57,8 +45,6 @@ export class JudgeIndicator implements HealthIndicator {
       workers: beats.length,
       totalSlots: beats.reduce((n, b) => n + (b.slots ?? 0), 0),
       oldestHeartbeatSec: oldest,
-      // A worker in `local` sandbox mode has NO isolation. Surfacing it here
-      // makes it impossible to leave that on by accident in a real deployment.
       sandboxes: [...new Set(beats.map((b) => b.sandbox))],
     };
   }

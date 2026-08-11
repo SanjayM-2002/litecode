@@ -11,10 +11,7 @@ import {
   AiProvider,
 } from './ai-provider.interface';
 
-// OpenRouter exposes an OpenAI-compatible chat-completions endpoint, so this
-// provider is structurally the same as OpenAiProvider. The win is model
-// flexibility: one API key gives you access to GPT, Claude, Gemini, Llama,
-// etc. via slash-namespaced model ids like `anthropic/claude-3.5-sonnet`.
+
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 interface OpenRouterResponse {
@@ -36,8 +33,6 @@ export class OpenRouterProvider implements AiProvider {
   constructor(config: ConfigService) {
     this.apiKey = config.get<string>('OPENROUTER_API_KEY');
     this.model = config.get<string>('OPENROUTER_MODEL') ?? 'openai/gpt-4o-mini';
-    // Optional app-identification headers — OpenRouter uses them for their
-    // public leaderboard / analytics. Both safely omitted if unset.
     this.referer = config.get<string>('OPENROUTER_REFERER');
     this.title = config.get<string>('OPENROUTER_TITLE');
   }

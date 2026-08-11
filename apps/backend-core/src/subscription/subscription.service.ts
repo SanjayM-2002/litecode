@@ -13,8 +13,7 @@ import { SubscriptionModel } from './models/subscription.model';
 import { StartSubscriptionResultModel } from './models/start-subscription-result.model';
 import { StartSubscriptionInput } from './dto/start-subscription.input';
 
-// A subscription that still entitles the user (no further actions allowed
-// until it terminates).
+
 const ACTIVE_STATUSES: SubscriptionStatus[] = [
   SubscriptionStatus.CREATED,
   SubscriptionStatus.AUTHENTICATED,
@@ -97,13 +96,8 @@ export class SubscriptionService {
       throw new ForbiddenException('Subscription already cancelled');
     }
 
-    // cancel_at_cycle_end=true keeps the user PREMIUM until currentPeriodEnd;
-    // Razorpay emits subscription.cancelled when the cycle ends.
     await this.razorpay.cancelSubscription(sub.razorpaySubscriptionId, true);
-
-    // Razorpay will also send a webhook flipping our DB state; this update is
-    // an immediate optimistic write so the frontend reflects the cancel right
-    // away. The webhook handler is idempotent and safe to re-apply.
+    
     const updated = await this.prisma.subscription.update({
       where: { id: sub.id },
       data: { status: SubscriptionStatus.CANCELLED, cancelledAt: new Date() },

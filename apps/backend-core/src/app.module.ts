@@ -23,7 +23,7 @@ import { SubscriptionModule } from './subscription/subscription.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    // RabbitMQ is registered inside JudgeModule, not here — see the note there.
+    // RabbitMQ is registered inside JudgeModule,
     PrismaModule,
     CacheModule,
     EntitlementModule,

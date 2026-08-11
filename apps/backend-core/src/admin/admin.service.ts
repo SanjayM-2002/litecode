@@ -11,8 +11,11 @@ import {
   PrismaService,
   User,
 } from '@litecode/db';
-import { Language } from '@litecode/shared-types';
-import { z } from 'zod';
+import {
+  Language,
+  USER_CODE_PLACEHOLDER,
+  argsShapeSchema,
+} from '@litecode/shared-types';
 import { AdminMeModel } from './models/admin-me.model';
 import { GeneratedTemplateModel } from './models/generated-template.model';
 import { ProblemModel } from './models/problem.model';
@@ -36,16 +39,6 @@ const PROBLEM_INCLUDE = {
   templates: true,
   testCases: { orderBy: { order: 'asc' as const } },
 } satisfies Prisma.ProblemInclude;
-
-// Must stay in sync with userCodePlaceholder in apps/judge/internal/grader.
-const USER_CODE_PLACEHOLDER = '{{USER_CODE}}';
-
-const argsShapeSchema = z.array(
-  z.object({
-    name: z.string().min(1),
-    type: z.string().min(1),
-  }),
-);
 
 type ProblemWithRelations = Prisma.ProblemGetPayload<{
   include: typeof PROBLEM_INCLUDE;
@@ -96,20 +89,7 @@ export class AdminService {
     };
   }
 
-  /**
-   * The judge substitutes the user's submission for {{USER_CODE}} before
-   * compiling. Without it the assembled source contains no solution at all.
-   *
-   * apps/judge already refuses such a template, but only once a user has
-   * submitted — the author is long gone by then and sees nothing. Checking
-   * here fails the person who can actually fix it.
-   *
-   * This does NOT verify the harder contract: the driver must loop over stdin
-   * and emit exactly one compact JSON line per case. Nothing static can check
-   * that, and a driver that reads a single case misgrades silently — one
-   * output line for a ten-case chunk reads as "died on case 2". Generate
-   * drivers with the generateTemplate query rather than hand-writing them.
-   */
+
   private assertDriverShape(language: Language, driverCode: string): void {
     if (!driverCode.includes(USER_CODE_PLACEHOLDER)) {
       throw new BadRequestException(
@@ -132,7 +112,6 @@ export class AdminService {
   }
 
   async createProblem(adminId: string, input: CreateProblemInput): Promise<ProblemModel> {
-    // Before the transaction: a bad driver should cost nothing.
     for (const t of input.templates ?? []) {
       this.assertDriverShape(t.language, t.driverCode);
     }
@@ -179,10 +158,6 @@ export class AdminService {
       return this.toProblemModel(problem);
     });
 
-    // New problem is unpublished, so the participant list cache wouldn't include
-    // it anyway — but template entries for the new (problemId, language) pairs
-    // might exist as negative cache hits if a user attempted a phantom submit.
-    // Bust them defensively.
     for (const t of input.templates ?? []) {
       await this.invalidateTemplate(result.id, t.language);
     }
@@ -235,8 +210,7 @@ export class AdminService {
     await this.invalidateProblemList();
     await this.invalidateProblemDetail(result.slug);
     if (previousSlug !== result.slug) {
-      // Slug rename: the old detail key would serve stale content under its old URL
-      // until TTL — and the new URL would 404 on cache hit. Bust both.
+      // Slug rename: invalidate cache
       await this.invalidateProblemDetail(previousSlug);
     }
     return result;
@@ -426,8 +400,7 @@ export class AdminService {
       })),
     });
 
-    // Public payload only exposes sample test cases, but any case can be
-    // flipped to/from `isSample` later — invalidate unconditionally.
+
     await this.invalidateProblemDetail(problem.slug);
     return rows as unknown as TestCaseModel[];
   }
@@ -526,11 +499,6 @@ export class AdminService {
 
   private validateForPublish(problem: ProblemWithRelations): string[] {
     const errors: string[] = [];
-
-    // Topics are deliberately NOT required. They drive browse/filter only —
-    // an untagged problem is harder to find but grades identically. Everything
-    // below is different: without a template or test cases the judge has
-    // nothing to run, so publishing would guarantee a broken submission.
 
     if (problem.templates.length === 0) {
       errors.push('Problem must have at least one code template');

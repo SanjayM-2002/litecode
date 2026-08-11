@@ -11,9 +11,6 @@ import {
   AiProvider,
 } from './ai-provider.interface';
 
-// Gemini's REST shape differs from OpenAI's: system goes in `systemInstruction`,
-// the user turn is a `contents[]` entry, and token counts live under
-// `usageMetadata`. The translation is contained to this file.
 interface GeminiResponse {
   candidates?: {
     content?: { parts?: { text?: string }[] };

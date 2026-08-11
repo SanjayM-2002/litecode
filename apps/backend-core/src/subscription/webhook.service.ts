@@ -7,7 +7,7 @@ import {
 } from '@litecode/db';
 import { EntitlementService } from '../entitlement/entitlement.service';
 
-// Razorpay webhook payload shape (only the fields we care about).
+// Razorpay webhook payload shape
 interface RazorpayWebhookEvent {
   event: string;
   id?: string;
@@ -39,12 +39,7 @@ const STATUS_MAP: Record<string, SubscriptionStatus> = {
   expired: SubscriptionStatus.EXPIRED,
 };
 
-// Statuses that should keep the user on the PREMIUM tier.
-// CANCELLED is NOT here: Razorpay only fires `subscription.cancelled` at the
-// moment the cycle actually ends (for `cancel_at_cycle_end: true`), so when
-// this webhook arrives the paid window is over and tier must drop to FREE.
-// HALTED stays entitling — failed payment retries are still in their paid
-// cycle and may recover.
+
 const PREMIUM_ENTITLING_STATUSES = new Set<SubscriptionStatus>([
   SubscriptionStatus.AUTHENTICATED,
   SubscriptionStatus.ACTIVE,
@@ -54,8 +49,6 @@ const PREMIUM_ENTITLING_STATUSES = new Set<SubscriptionStatus>([
 
 interface HandleResult {
   duplicate: boolean;
-  // Set when a tier change committed; the caller invalidates the cache after
-  // the transaction is durable.
   tierChangedForUserId: string | null;
 }
 
@@ -68,17 +61,6 @@ export class WebhookService {
     private readonly entitlement: EntitlementService,
   ) {}
 
-  // Returns true if the event was newly processed, false if it was a duplicate.
-  // Either way the caller responds 200 so Razorpay does not retry.
-  //
-  // Everything DB-side runs inside one transaction:
-  //   - WebhookEvent insert is the idempotency lock (unique on razorpayEventId)
-  //   - Subscription + User updates are atomic with that lock
-  //   - processedAt is set in the same tx
-  // If dispatch fails partway, the whole tx rolls back including the
-  // WebhookEvent row, so Razorpay's retry sees the event as fresh.
-  // Cache invalidation is intentionally OUTSIDE the tx (Redis isn't
-  // transactional with Postgres); worst case is stale tier for the cache TTL.
   async handle(event: RazorpayWebhookEvent, eventId: string): Promise<boolean> {
     let result: HandleResult;
     try {
@@ -124,9 +106,7 @@ export class WebhookService {
     return true;
   }
 
-  // Returns the userId whose tier changed, or null if no tier change occurred.
-  // All writes use the provided transactional client so they are atomic with
-  // the WebhookEvent insert above.
+
   private async dispatch(
     tx: TxClient,
     event: RazorpayWebhookEvent,
@@ -167,9 +147,6 @@ export class WebhookService {
       },
     });
 
-    // Tier sync. PREMIUM-entitling statuses promote; terminal statuses
-    // (CANCELLED, COMPLETED, EXPIRED) demote. CREATED is pre-payment, so
-    // leave tier untouched until activation lands.
     const targetTier =
       newStatus === SubscriptionStatus.CANCELLED ||
       newStatus === SubscriptionStatus.COMPLETED ||
