@@ -12,14 +12,6 @@ import (
 	"time"
 )
 
-// Local runs code with NO ISOLATION WHATSOEVER.
-//
-// It exists so the queue, database, chunk-planning and comparison paths can be
-// developed on macOS, where namespaces and cgroups do not exist. It cannot
-// enforce a memory limit, cannot stop a fork bomb, and cannot be trusted with
-// anything you did not write yourself.
-//
-// Never set JUDGE_SANDBOX=local anywhere a real user can submit code.
 type Local struct{ log *slog.Logger }
 
 func NewLocal(log *slog.Logger) *Local {
@@ -47,8 +39,6 @@ func (b *localBox) Dir() string                   { return b.dir }
 func (b *localBox) Close(_ context.Context) error { return os.RemoveAll(b.dir) }
 
 func (b *localBox) Run(ctx context.Context, s Spec) (Result, error) {
-	// Only the wall clock is enforceable here. There is no CPU deadline, no
-	// memory cap and no process cap.
 	ctx, cancel := context.WithTimeout(ctx, s.WallTime)
 	defer cancel()
 
@@ -85,8 +75,6 @@ func (b *localBox) Run(ctx context.Context, s Spec) (Result, error) {
 
 	res := Result{WallTime: wall, Status: StatusOK}
 
-	// getrusage gives real per-process CPU time and peak RSS even without
-	// cgroups — approximate, but enough to develop against.
 	if ru, ok := cmd.ProcessState.SysUsage().(*syscall.Rusage); ok {
 		res.CPUTime = time.Duration(ru.Utime.Nano() + ru.Stime.Nano())
 		res.PeakMemKB = maxRSSKB(ru)

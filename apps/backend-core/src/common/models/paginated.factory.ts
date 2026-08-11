@@ -2,12 +2,6 @@ import { Field, ObjectType } from '@nestjs/graphql';
 import { Type } from '@nestjs/common';
 import { PaginationMeta } from './pagination-meta.model';
 
-/**
- * Factory for paginated GraphQL response wrappers.
- * Usage:
- *   @ObjectType('TopicsPage')
- *   export class TopicsPage extends Paginated(TopicModel) {}
- */
 export interface PaginatedType<T> {
   items: T[];
   meta: PaginationMeta;

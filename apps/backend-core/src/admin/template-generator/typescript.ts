@@ -39,8 +39,7 @@ export function generateTypeScriptTemplate(sig: Signature): GeneratedTemplate {
       ? `${callExpr};\nconsole.log('null');`
       : `const result = ${callExpr};\nconsole.log(JSON.stringify(result ?? null));`;
 
-  const driverCode = `// Driver: reads JSON input from stdin, calls user solution, prints JSON.
-import * as fs from 'fs';
+  const driverCode = `import * as fs from 'fs';
 const input: unknown[] = JSON.parse(fs.readFileSync(0, 'utf-8'));
 
 {{USER_CODE}}

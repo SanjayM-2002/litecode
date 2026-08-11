@@ -7,14 +7,7 @@ import { DeepHealth } from './health.types';
 export class HealthController {
   constructor(private readonly health: HealthService) {}
 
-  /**
-   * Liveness. Answers "is this process wedged", nothing more.
-   *
-   * Deliberately touches no dependencies. A liveness probe that checks Redis
-   * or the database turns a dependency blip into a restart loop: the probe
-   * fails, the orchestrator kills a perfectly healthy process, the replacement
-   * hits the same blip. Dependency checks belong on /health/deep.
-   */
+
   @Get()
   checkHealth() {
     return {
@@ -24,14 +17,6 @@ export class HealthController {
     };
   }
 
-  /**
-   * Every dependency, checked in parallel.
-   *
-   * 503 only when a service marked `critical` is down — today that's Postgres
-   * alone. Redis, RabbitMQ and the judge workers report `degraded` instead,
-   * because the API still serves without them and a 503 would pull this
-   * instance out of rotation over a partial outage.
-   */
   @Get('deep')
   async checkDeep(
     @Res({ passthrough: true }) res: Response,

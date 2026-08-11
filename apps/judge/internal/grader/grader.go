@@ -1,5 +1,3 @@
-// Package grader orchestrates one submission: load, assemble, compile once,
-// chunk, execute, compare, persist.
 package grader
 
 import (
@@ -25,9 +23,6 @@ import (
 
 const userCodePlaceholder = "{{USER_CODE}}"
 
-// Compile gets its own limits, deliberately not the problem's. A compile needs
-// seconds and hundreds of MB; a run needs ~2s and 256MB. Conflating them is
-// wrong in both directions — it's what the old Piston client did.
 const (
 	compileWall  = 20 * time.Second
 	compileCPU   = 10 * time.Second
@@ -41,10 +36,9 @@ const (
 )
 
 type Grader struct {
-	db    *db.DB
-	sb    sandbox.Sandbox
-	slots *Slots
-	// cache may be nil — a nil *cache.Client is a working no-op.
+	db       *db.DB
+	sb       sandbox.Sandbox
+	slots    *Slots
 	cache    *cache.Client
 	includes string
 	log      *slog.Logger
@@ -61,11 +55,6 @@ func New(
 	return &Grader{db: database, sb: sb, slots: slots, cache: cch, includes: includeDir, log: log}
 }
 
-// Grade runs one submission end to end and persists the verdict.
-//
-// It returns an error ONLY for infrastructure failures — those should not be
-// acked, so the message is redelivered. User-code failures (compile error,
-// TLE, wrong answer) are successful gradings and return nil.
 func (g *Grader) Grade(ctx context.Context, jobID string) error {
 	log := g.log.With("job_id", jobID)
 	started := time.Now()
@@ -92,8 +81,6 @@ func (g *Grader) Grade(ctx context.Context, jobID string) error {
 		"time_limit_ms", bundle.Problem.TimeLimitMS,
 		"mem_limit_kb", bundle.Problem.MemoryLimitKB)
 
-	// Anything wrong with the problem's own data is a permanent failure, not
-	// something to retry — persist INTERNAL_ERROR and ack.
 	if bundle.DriverCode == "" {
 		return g.fail(ctx, jobID, fmt.Sprintf("no CodeTemplate for language %s", bundle.Submission.Language))
 	}
@@ -122,9 +109,7 @@ func (g *Grader) Grade(ctx context.Context, jobID string) error {
 	if err != nil {
 		return err
 	}
-	// WithoutCancel: a leaked box holds a cgroup and a uid. Cleanup must run
-	// even when the context is already dead. Reads `box` at defer time, so a
-	// recycled box (see below) is still the one that gets cleaned up.
+
 	defer func() {
 		if cerr := box.Close(context.WithoutCancel(ctx)); cerr != nil {
 			log.Warn("box cleanup failed", "slot", slot, "err", cerr)
@@ -175,16 +160,6 @@ func (g *Grader) Grade(ctx context.Context, jobID string) error {
 		}
 
 		// Recycle the box so the run gets a clean cgroup.
-		//
-		// cg-mem is memory.peak, a HIGH-WATER MARK the kernel never lowers,
-		// and isolate reuses one cgroup per box for every invocation. So the
-		// compiler's footprint — ~200MB, mostly the precompiled header —
-		// becomes the reported memory of every run that follows it. Two Sum
-		// reported 207MB against a 256MB limit before this.
-		//
-		// Resetting memory.peak by writing to it needs Linux 6.13; Docker
-		// Desktop is on 6.10. Destroying and recreating the cgroup is the
-		// portable equivalent, and costs a few milliseconds.
 		if newBox, err := recycle(ctx, g.sb, box, slot, rt.Artifact); err != nil {
 			return fmt.Errorf("recycle box after compile: %w", err)
 		} else {
@@ -227,14 +202,7 @@ func (g *Grader) runChunks(
 		UserID:      bundle.Submission.UserID,
 	}
 
-	// Problem.timeLimit_ms is the TOTAL budget for the submission — it does not
-	// scale with case count. Both counters drain as chunks complete, so a run
-	// that burns the budget on chunk 1 has nothing left for chunk 2.
-	//
-	// Wall is 2× CPU rather than equal to it: a sleeping or blocked process
-	// accrues wall time without CPU time, so a CPU-only limit never fires on
-	// `while(true) sleep(1)`. The 2× slack absorbs process startup and I/O
-	// that legitimately isn't CPU.
+	// Problem.timeLimit_ms is the TOTAL budget for the submission
 	cpuLeft := time.Duration(bundle.Problem.TimeLimitMS) * time.Millisecond
 	wallLeft := 2 * cpuLeft
 
@@ -301,16 +269,12 @@ func (g *Grader) runChunks(
 			break
 		}
 
-		// Wrong answer. Comparing here — rather than after all chunks — is
-		// what lets a wrong solution stop before touching the large cases.
+		// Wrong answer. Comparing here — rather than after all chunks
 		if badIdx >= 0 {
 			failed := chunk[badIdx]
 			rep.Verdict = model.VerdictWrongAnswer
 			rep.FailedTestCaseID = &failed.ID
 			rep.Cases = append(rep.Cases, passedBefore(chunk, badIdx, res.Stdout)...)
-			// TODO(stdout): the user's own prints are chunk-level, not
-			// per-case. Re-running just this one case in isolation would give
-			// clean per-case stdout for ~17ms, paid only on failure.
 			rep.Cases = append(rep.Cases,
 				caseResult(failed, model.VerdictWrongAnswer,
 					lineAt(res.Stdout, badIdx), strptr(string(res.Stderr))))
@@ -319,17 +283,12 @@ func (g *Grader) runChunks(
 
 		rep.Cases = append(rep.Cases, passedBefore(chunk, len(chunk), res.Stdout)...)
 
-		// The filesystem persists between chunks even though the process does
-		// not. Without this, chunk N can read a file chunk N-1 wrote.
+		// The filesystem persists between chunks even though the process does not
 		if err := sandbox.Scrub(box.Dir(), rt.Artifact); err != nil {
 			return rep, fmt.Errorf("scrub box: %w", err)
 		}
 	}
 
-	// Report on "did any chunk run", NOT on "is the value non-zero". A fast
-	// solution genuinely uses 0ms of whole-millisecond CPU — Milliseconds()
-	// truncates, so 0.4ms becomes 0 — and a `> 0` guard would turn that into
-	// NULL, making the fastest submissions look unmeasured.
 	if chunksRun > 0 {
 		ms := int(totalCPU.Milliseconds())
 		rep.RuntimeMS = &ms
@@ -338,19 +297,6 @@ func (g *Grader) runChunks(
 	return rep, nil
 }
 
-// stageChunk writes the chunk's inputs as NDJSON — one compact JSON value per
-// line — and returns the expected outputs in the same order. The driver loops
-// until EOF and prints exactly one JSON value per case, which is what makes
-// failure attribution exact: a mismatch on line 7 is unambiguously case 7.
-// recycle tears down a box and opens a fresh one on the same slot, carrying
-// the build artifact across.
-//
-// The point is the cgroup, not the filesystem: destroying the box destroys
-// box-N's cgroup, so memory.peak restarts at zero for the run. The artifact
-// has to survive because rebuilding it is the expensive thing we just paid for.
-//
-// Same slot id deliberately — the caller still holds that concurrency slot, so
-// no other goroutine can be using this box id.
 func recycle(
 	ctx context.Context,
 	sb sandbox.Sandbox,
@@ -374,8 +320,6 @@ func recycle(
 
 	// 0o755: this is the executable the run stage invokes.
 	if err := os.WriteFile(filepath.Join(fresh.Dir(), artifact), blob, 0o755); err != nil {
-		// Close the box we just opened, or it leaks a cgroup and a uid — the
-		// caller's deferred cleanup still refers to the OLD box on this path.
 		_ = fresh.Close(context.WithoutCancel(ctx))
 		return nil, fmt.Errorf("restore artifact: %w", err)
 	}
@@ -388,9 +332,6 @@ func stageChunk(dir string, chunk []model.TestCase) (string, []json.RawMessage, 
 
 	for _, tc := range chunk {
 		if tc.IsLarge() {
-			// TODO(gcs): fetch into the content-addressed cache and bind-mount
-			// it read-only rather than copying — a 50MB file across 5 cases is
-			// 250MB of pointless I/O per submission.
 			return "", nil, fmt.Errorf("test case %s is object-store backed; GCS support not implemented", tc.ID)
 		}
 		var compact bytes.Buffer
@@ -410,8 +351,6 @@ func stageChunk(dir string, chunk []model.TestCase) (string, []json.RawMessage, 
 }
 
 func (g *Grader) persist(ctx context.Context, jobID string, rep model.Report) error {
-	// Bounded so a wedged database fails fast instead of hanging until the
-	// broker's ack timeout expires.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
 	defer cancel()
 
@@ -422,13 +361,6 @@ func (g *Grader) persist(ctx context.Context, jobID string, rep model.Report) er
 	logging.Checkpoint(g.log.With("job_id", jobID), 10, "verdict_written",
 		"verdict", rep.Verdict, "written", written)
 
-	// Only on a real write. A duplicate delivery changed nothing, so there is
-	// nothing newly stale — and busting caches for it would just cost the API
-	// a round of refills.
-	//
-	// After the commit, deliberately: an invalidation that runs before the
-	// transaction lands would let a concurrent read refill the cache from the
-	// pre-verdict state, leaving it stale with no further trigger to fix it.
 	if written {
 		g.cache.AfterVerdict(ctx, rep.UserID, rep.ProblemSlug)
 	}
@@ -459,8 +391,6 @@ func verdictFor(s sandbox.Status) string {
 	}
 }
 
-// passedBefore records the first n cases of a chunk as ACCEPTED, attaching the
-// output line each one produced.
 func passedBefore(chunk []model.TestCase, n int, stdout []byte) []model.CaseResult {
 	if n > len(chunk) {
 		n = len(chunk)
@@ -479,10 +409,8 @@ func caseResult(tc model.TestCase, verdict string, stdout, stderr *string) model
 		Verdict:    verdict,
 		Stdout:     stdout,
 		Stderr:     stderr,
-		// Per-case metrics are unavailable when chunked: one process, one
-		// cgroup, one measurement. Aggregates live on the submission.
-		RuntimeMS: nil,
-		MemoryKB:  nil,
+		RuntimeMS:  nil, // per case data not present
+		MemoryKB:   nil,
 	}
 }
 

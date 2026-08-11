@@ -6,11 +6,7 @@ import { RabbitMqIndicator } from './indicators/rabbitmq.indicator';
 import { JudgeIndicator } from './indicators/judge.indicator';
 import { BacklogIndicator } from './indicators/backlog.indicator';
 
-/**
- * Per-check budget. A health endpoint that hangs is worse than one reporting a
- * failure — monitors time out, orchestrators draw the wrong conclusion, and
- * you learn nothing. Every check races this.
- */
+
 const CHECK_TIMEOUT_MS = 2_000;
 
 @Injectable()
@@ -31,8 +27,6 @@ export class HealthService {
   async deep(): Promise<DeepHealth> {
     const started = Date.now();
 
-    // Parallel, not sequential: five checks at up to 2s each would be a 10s
-    // endpoint in the worst case.
     const entries = await Promise.all(this.indicators.map((i) => this.run(i)));
     const services = Object.fromEntries(entries) as Record<string, ServiceCheck>;
 
@@ -50,7 +44,6 @@ export class HealthService {
     };
   }
 
-  /** Never throws — a failed indicator becomes a `down` entry, not a 500. */
   private async run(indicator: HealthIndicator): Promise<[string, ServiceCheck]> {
     const started = Date.now();
     try {
@@ -83,7 +76,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
       () => reject(new Error(`${label} check timed out after ${ms}ms`)),
       ms,
     );
-    // Don't let a pending health-check timer hold the process open on shutdown.
     timer.unref?.();
   });
   return Promise.race([promise, timeout]).finally(() => {

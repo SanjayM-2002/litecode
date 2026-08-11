@@ -15,7 +15,6 @@ model Topic {
   @@index([isActive])
 }
 
-// Explicit junction so we can add metadata (e.g., isPrimary, order) later.
 model ProblemTopic {
   problemId String
   topicId   String

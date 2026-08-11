@@ -61,20 +61,16 @@ model TestCase {
   problem      Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
 
   // Inline storage for small cases (read directly, no GCS roundtrip).
-  // Encoded as a positional JSON array matching `Problem.signature.args`.
-  // e.g., for twoSum([2,7,11,15], 9) → inlineInput = [[2,7,11,15], 9]
   inlineInput  Json?
   inlineOutput Json?
 
   // GCS storage for large cases. File contents follow the same JSON shape.
-  // At least one of (inlineInput, inputPath) and (inlineOutput, outputPath)
-  // must be set — enforced via raw-SQL CHECK constraint in the migration.
   inputPath    String?
   outputPath   String?
 
   // Metadata
   isSample    Boolean  @default(false) // Visible to user in "Examples"
-  explanation String?  @db.Text        // e.g., "Because 2 + 7 = 9..."
+  explanation String?  @db.Text        
   order       Int      @default(0)     // Author-controlled sequence
 
   createdAt   DateTime @default(now())

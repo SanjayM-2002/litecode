@@ -1,12 +1,3 @@
-// --- DISCUSS FORUM ---
-//
-// User-posted threads, similar to LeetCode's Discuss section. Each post:
-// - has exactly one tag from `DiscussTag`
-// - carries a markdown body (`content`)
-// - may optionally reference a published Problem (`problemId`)
-//
-// Replies are flat — no nested threading for v1.
-
 enum DiscussTag {
   GENERAL
   PROBLEM

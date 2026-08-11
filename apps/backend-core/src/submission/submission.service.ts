@@ -64,8 +64,6 @@ export class SubmissionService {
       }
     }
 
-    // Existence check only — cache the result so repeat submits skip the DB hit.
-    // Admin.setCodeTemplate invalidates this entry on upsert.
     const template = await this.cache.getOrSet<{ id: string } | null>(
       cacheKeys.template(input.problemId, input.language),
       TTL_TEMPLATE_SEC,

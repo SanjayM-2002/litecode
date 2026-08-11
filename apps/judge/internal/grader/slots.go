@@ -2,13 +2,6 @@ package grader
 
 import "context"
 
-// Slots hands out sandbox slot ids. It doubles as the admission semaphore, so
-// pool size IS the concurrency limit and there is no second knob to keep in
-// sync.
-//
-// Size it to (cores - 2). Sandboxes are CPU-bound, and oversubscribing cores
-// inflates every measured runtime — which on a judge turns correct solutions
-// into TLEs, because time is part of the output rather than just telemetry.
 type Slots struct{ free chan int }
 
 func NewSlots(n int) *Slots {

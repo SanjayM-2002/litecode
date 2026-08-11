@@ -6,22 +6,7 @@ import { HealthIndicator, ServiceCheck } from '../health.types';
 
 const CONNECT_TIMEOUT_MS = 2_000;
 
-/**
- * Broker reachability check.
- *
- * This opens a TCP (or TLS) socket to the AMQP host and closes it. It proves
- * the broker is listening and routable — it does NOT prove credentials or the
- * vhost are correct, because doing so would mean completing an AMQP handshake
- * and pulling in an AMQP client this app doesn't yet have.
- *
- * Once the RabbitMQ migration lands and `AmqpConnection` from
- * @golevelup/nestjs-rabbitmq is available, replace the body with a real
- * connection-state read. Until then this catches the failure that actually
- * happens — the broker being down or the URL being wrong.
- *
- * Not critical: the broker being unreachable stops grading, but every read
- * path still works.
- */
+
 @Injectable()
 export class RabbitMqIndicator implements HealthIndicator {
   readonly name = 'rabbitmq';
@@ -56,7 +41,6 @@ export class RabbitMqIndicator implements HealthIndicator {
       host,
       port,
       tls: secure,
-      // Be explicit that a green light here is weaker than it looks.
       probe: 'tcp-connect',
     };
   }

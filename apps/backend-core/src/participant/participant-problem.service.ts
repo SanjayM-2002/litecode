@@ -26,8 +26,7 @@ type PublicProblemWithRelations = Prisma.ProblemGetPayload<{
   include: typeof PUBLIC_PROBLEM_INCLUDE;
 }>;
 
-// Cached entries store the global slice only — `solved`/`attempted` are stripped
-// before write and overlaid from the per-user map at read time.
+
 type CachedProblem = Omit<PublicProblemModel, 'solved' | 'attempted'>;
 type CachedProblemsPage = { items: CachedProblem[]; meta: PaginationMeta };
 type SolvedMap = Record<string, { solved: boolean; attempted: boolean }>;
@@ -119,7 +118,6 @@ export class ParticipantProblemService {
   async listTopics(filter: PublicTopicsFilterInput): Promise<TopicsPage> {
     const { page, limit } = clampPagination(filter);
 
-    // Free-text search bypasses the cache (unbounded cardinality).
     if (filter.search) {
       return this.queryTopicsPageFromDb(filter, page, limit);
     }
@@ -291,9 +289,7 @@ export class ParticipantProblemService {
     });
   }
 
-  // JSON serialization through Redis converts `Date` → ISO string. GraphQL's
-  // DateTime scalar refuses to serialize strings, so we restore Date instances
-  // on every cache read. Only `createdAt` is a Date field on the public payload.
+
   private reviveCachedProblem(p: CachedProblem): CachedProblem {
     if (p.createdAt instanceof Date) return p;
     return { ...p, createdAt: new Date(p.createdAt as unknown as string) };
@@ -320,7 +316,6 @@ export class ParticipantProblemService {
         id: t.id,
         language: t.language,
         starterCode: t.starterCode,
-        // driverCode intentionally omitted
       })),
       sampleTestCases: problem.testCases.map<PublicTestCaseModel>((tc) => ({
         id: tc.id,

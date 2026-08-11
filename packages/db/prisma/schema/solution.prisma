@@ -1,12 +1,3 @@
-// --- USER-AUTHORED SOLUTIONS ---
-//
-// A user-posted writeup of how they solved a problem. Each solution carries:
-// - a markdown explanation (`content`)
-// - a code snippet in a single language
-// - a free-form title
-//
-// Threaded replies live in SolutionReply (flat — no nested threading for v1).
-
 model Solution {
   id String @id @default(cuid())
 

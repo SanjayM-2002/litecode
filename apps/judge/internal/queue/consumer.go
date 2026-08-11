@@ -1,4 +1,3 @@
-// Package queue consumes grading jobs from RabbitMQ.
 package queue
 
 import (
@@ -11,10 +10,6 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// The shared contract with backend-core. These are re-declared in
-// packages/queue/index.ts as JUDGE_EXCHANGE and JUDGE_ROUTING_KEYS — nothing
-// enforces they match, and a mismatch means publishes succeed while the broker
-// silently discards the message.
 const (
 	ExchangeName = "litecode"
 
@@ -22,9 +17,6 @@ const (
 	highRoutingKey = "judge.jobs.high"
 )
 
-// Handler grades one submission. Returning an error means INFRASTRUCTURE
-// failure — the message must not be treated as done. User-code failures
-// (compile error, TLE, wrong answer) are successful gradings and return nil.
 type Handler func(ctx context.Context, jobID string) error
 
 type Consumer struct {
@@ -38,12 +30,6 @@ func New(url, queue string, prefetch int, log *slog.Logger) *Consumer {
 	return &Consumer{url: url, queue: queue, prefetch: prefetch, log: log}
 }
 
-// Run consumes until ctx is cancelled, reconnecting on failure.
-//
-// The reconnect loop is not optional: amqp091-go has NO automatic recovery.
-// If the broker restarts — or a shared CloudAMQP instance is migrated — the
-// consumer silently stops receiving messages with no error and nothing in the
-// logs. It's the most common production bug with this library.
 func (c *Consumer) Run(ctx context.Context, h Handler) error {
 	backoff := time.Second
 	for {
@@ -87,13 +73,6 @@ func (c *Consumer) session(ctx context.Context, h Handler) error {
 		return err
 	}
 
-	// A topic exchange silently drops messages matching no binding. Until a
-	// dedicated high-lane worker exists, the default queue also takes the
-	// high-priority key so premium submissions aren't discarded without a trace.
-	//
-	// REMOVE THIS when you add a second worker bound to judge.jobs.high: an
-	// exchange delivers to EVERY matching binding, so leaving both in place
-	// would grade those submissions twice.
 	if c.queue == defaultQueue {
 		if err := ch.QueueBind(c.queue, highRoutingKey, ExchangeName, false, nil); err != nil {
 			return err
@@ -102,8 +81,6 @@ func (c *Consumer) session(ctx context.Context, h Handler) error {
 			"key", highRoutingKey)
 	}
 
-	// Prefetch caps unacked messages, so the BROKER enforces our sandbox
-	// concurrency and at most `prefetch` handler goroutines ever exist.
 	if err := ch.Qos(c.prefetch, 0, false); err != nil {
 		return err
 	}
@@ -147,28 +124,14 @@ func (c *Consumer) handle(ctx context.Context, h Handler, d amqp.Delivery) {
 	log.Debug("delivery received", "redelivered", d.Redelivered)
 
 	if err := h(ctx, job.JobID); err != nil {
-		// Infrastructure failure. Do NOT requeue: classic queues have no
-		// x-delivery-limit, so Nack(requeue=true) redelivers forever — a hot
-		// loop that also burns the message quota.
-		//
-		// The submission stays RUNNING, and the sweeper re-enqueues it. That
-		// is deliberately the whole retry story for now.
-		//
-		// TODO(retry): once on a self-hosted broker, add quorum queues with
-		// x-delivery-limit plus the delayed-message plugin for real backoff.
+		// If possible add quorum queues with x-delivery-limit plus the delayed-message plugin for real backoff.
 		log.Error("grading failed, dead-lettering", "err", err)
 		_ = d.Nack(false, false)
 		return
 	}
 
-	// `false` = multiple:false. NEVER pass true here: with prefetch > 1 and a
-	// goroutine per delivery, jobs finish out of order, and multiple:true acks
-	// every tag up to this one — silently marking still-running jobs done. If
-	// one of those crashes there is no redelivery and the submission hangs
-	// forever. This only manifests under concurrency.
 	if err := d.Ack(false); err != nil {
-		// Harmless: without the ack the broker redelivers, we re-grade, and
-		// the conditional UPDATE makes the second write a no-op.
+
 		log.Warn("ack failed; message will be redelivered", "err", err)
 	}
 }

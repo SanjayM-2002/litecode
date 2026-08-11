@@ -6,16 +6,11 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
-// razorpay uses CJS `module.exports = Razorpay` + `export = Razorpay`. The
-// `import X = require(...)` syntax is the TS-idiomatic way to consume that
-// without enabling esModuleInterop globally (which would change every other
-// import in the project).
+// razorpay uses CJS `module.exports = Razorpay` + `export = Razorpay`.
 import Razorpay = require('razorpay');
 import { Subscriptions } from 'razorpay/dist/types/subscriptions';
 
-// Thin wrapper around the Razorpay SDK. All other code (services, webhook
-// handlers) depends on this — never on `razorpay` directly — so the upstream
-// SDK contract is contained.
+
 @Injectable()
 export class RazorpayService implements OnModuleInit {
   private readonly logger = new Logger(RazorpayService.name);
@@ -67,10 +62,6 @@ export class RazorpayService implements OnModuleInit {
     }
   }
 
-  // Surfaces Razorpay's human-readable error (e.g. "The id provided does not
-  // exist") to the GraphQL caller so misconfiguration is debuggable from the
-  // client. These messages are safe to expose — they reference public ids and
-  // Razorpay-controlled strings, not our secrets.
   private translateError(op: string, err: unknown): BadGatewayException {
     const description = this.extractDescription(err);
     const fallback = (err as Error)?.message ?? 'unknown error';
@@ -85,10 +76,7 @@ export class RazorpayService implements OnModuleInit {
     return e.error?.description ?? null;
   }
 
-  // Webhook signature verification. Razorpay sends HMAC-SHA256 of the raw body
-  // bytes (not the parsed JSON) signed with the webhook secret in the
-  // `x-razorpay-signature` header. Uses timing-safe compare to avoid leaking
-  // signature info via response time.
+  // Webhook signature verification
   verifyWebhookSignature(rawBody: Buffer, signatureHeader: string | undefined): boolean {
     if (!signatureHeader) return false;
     const expected = crypto

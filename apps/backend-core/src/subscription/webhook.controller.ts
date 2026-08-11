@@ -39,9 +39,6 @@ export class RazorpayWebhookController {
 
     const payload = JSON.parse(req.rawBody.toString('utf8'));
 
-    // Razorpay sometimes ships the event id in a header, sometimes in the body.
-    // Fall back to a deterministic key built from event + subscription id +
-    // created_at so retried deliveries still collide on the unique constraint.
     const subId = payload?.payload?.subscription?.entity?.id ?? 'no-sub';
     const eventId =
       eventIdHeader ??

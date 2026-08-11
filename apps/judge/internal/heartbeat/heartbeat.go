@@ -1,13 +1,3 @@
-// Package heartbeat publishes worker liveness to Redis.
-//
-// The API can't health-check the judge directly: workers run on a separate
-// machine, have no HTTP server, and execute untrusted code — opening a network
-// path from the API toward them would be the wrong direction. So each worker
-// pushes a key with a TTL slightly longer than its interval, and a stopped
-// worker simply expires.
-//
-// Read by GET /health/deep in backend-core. The key format must stay in sync
-// with cacheKeys.judgeHeartbeat() in packages/cache/src/cache.keys.ts.
 package heartbeat
 
 import (
@@ -24,18 +14,14 @@ import (
 const (
 	keyPrefix = "judge:heartbeat:v1:"
 	interval  = 10 * time.Second
-	// Longer than the interval so a single slow tick doesn't look like death,
-	// short enough that a stopped worker disappears promptly.
-	ttl = 30 * time.Second
+	ttl       = 30 * time.Second
 )
 
-// Beat is the JSON payload. Field names match the Heartbeat interface in
-// apps/backend-core/src/health/indicators/judge.indicator.ts.
 type Beat struct {
 	WorkerID string `json:"workerId"`
 	Sandbox  string `json:"sandbox"`
 	Slots    int    `json:"slots"`
-	TS       string `json:"ts"` // RFC3339
+	TS       string `json:"ts"`
 }
 
 type Reporter struct {
@@ -45,8 +31,6 @@ type Reporter struct {
 	log  *slog.Logger
 }
 
-// New returns nil (with no error) when redisURL is empty — the worker runs
-// fine without heartbeats, it just won't show up in /health/deep.
 func New(redisURL, sandbox string, slots int, log *slog.Logger) (*Reporter, error) {
 	if redisURL == "" {
 		log.Warn("REDIS_URL not set — worker will not report heartbeats and will show as down in /health/deep")
@@ -73,7 +57,6 @@ func New(redisURL, sandbox string, slots int, log *slog.Logger) (*Reporter, erro
 	}, nil
 }
 
-// Run publishes immediately, then on a ticker, until ctx is cancelled.
 func (r *Reporter) Run(ctx context.Context) {
 	if r == nil {
 		return
@@ -86,8 +69,6 @@ func (r *Reporter) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			// Remove the key on clean shutdown so the worker disappears from
-			// health immediately rather than lingering for the TTL.
 			delCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 			if err := r.rdb.Del(delCtx, r.key).Err(); err != nil {
 				r.log.Debug("heartbeat cleanup failed", "err", err)
@@ -109,9 +90,6 @@ func (r *Reporter) publish(ctx context.Context) {
 		r.log.Error("marshal heartbeat", "err", err)
 		return
 	}
-
-	// Best effort. A failed heartbeat must never affect grading — it only
-	// makes this worker look absent for one interval.
 	if err := r.rdb.Set(ctx, r.key, payload, ttl).Err(); err != nil {
 		r.log.Warn("heartbeat publish failed", "key", r.key, "err", err)
 		return
